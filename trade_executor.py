@@ -1760,7 +1760,10 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
                     tp_price = entry_price * (1 + take_profit_pct)
                 else:
                     tp_price = entry_price * (1 - take_profit_pct)
-                tp_price = round(round(tp_price / tick) * tick, decimals)
+                # Use Decimal for precise rounding
+                tp_price_d = Decimal(str(tp_price))
+                tp_price_d = (tp_price_d / tick_d).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_d
+                tp_price = float(tp_price_d)
                 tp_prices = [tp_price]
                 take_profits = [{
                     'label': 'TP1',
@@ -1773,7 +1776,12 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
                 # Fall back to risk config TP levels
                 take_profits = executor.calculate_take_profits(entry_price, side)
                 tp_prices_raw = [tp['price'] for tp in take_profits]
-                tp_prices = [round(round(tp / tick) * tick, decimals) for tp in tp_prices_raw]
+                # Use Decimal for precise rounding
+                tp_prices = []
+                for tp in tp_prices_raw:
+                    tp_d = Decimal(str(tp))
+                    tp_d = (tp_d / tick_d).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_d
+                    tp_prices.append(float(tp_d))
             
             # Step 2: Place order on HyperLiquid
             # open_position_real handles slippage automatically for Market orders
