@@ -396,8 +396,8 @@ class HyperliquidClient:
         current_price = self.get_mid_price(coin)
         
         # Round price to tick size (HyperLiquid requires specific price increments)
-        # BTC: $1 tick, ETH: $0.05 tick, SOL: $0.01 tick (approximate)
-        tick_sizes = {'BTC': 1, 'ETH': 0.05, 'SOL': 0.01}
+        # BTC: $1 tick, ETH: $0.01 tick, SOL: $0.01 tick
+        tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
         tick = tick_sizes.get(coin, 0.01)
         
         # For market-like IOC orders, use aggressive pricing with slippage
@@ -1204,8 +1204,8 @@ Reason: {reason}{partial_summary}
             limit_px = self.client.get_mid_price(symbol)
         
         # Round price to tick size (HyperLiquid requires specific price increments)
-        # BTC: $1 tick, ETH: $0.05 tick, SOL: $0.01 tick (approximate)
-        tick_sizes = {'BTC': 1, 'ETH': 0.05, 'SOL': 0.01}
+        # BTC: $1 tick, ETH: $0.01 tick, SOL: $0.01 tick
+        tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
         tick = tick_sizes.get(symbol, 0.01)
         
         # Round to tick size
@@ -1283,7 +1283,7 @@ Reason: {reason}{partial_summary}
                     # Use current price as limit price for market execution
                     # Round to tick size to avoid "Price must be divisible by tick size" error
                     current_price = self.client.get_mid_price(symbol)
-                    tick_sizes = {'BTC': 1, 'ETH': 0.05, 'SOL': 0.01}
+                    tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
                     tick = tick_sizes.get(symbol, 0.01)
                     # Use integer math to avoid floating point precision errors
                     # e.g., 1569.85 / 0.05 = 31396.999999999996 (wrong) vs int(1569.85 * 100) / int(0.05 * 100) = 31397
@@ -1333,7 +1333,7 @@ Reason: {reason}{partial_summary}
                         # Use current price as limit price for market execution
                         # Round to tick size to avoid "Price must be divisible by tick size" error
                         current_price = self.client.get_mid_price(symbol)
-                        tick_sizes = {'BTC': 1, 'ETH': 0.05, 'SOL': 0.01}
+                        tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
                         tick = tick_sizes.get(symbol, 0.01)
                         # Use integer math to avoid floating point precision errors
                         multiplier = 100 if tick < 1 else 1
@@ -1712,7 +1712,7 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
                 stop_loss = entry_price * (1 + sl_pct)
             
             # Round stop loss to tick size for HyperLiquid
-            tick_sizes = {'BTC': 1, 'ETH': 0.05, 'SOL': 0.01}
+            tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
             tick = tick_sizes.get(coin, 0.01)
             decimals = len(str(tick).split('.')[-1]) if '.' in str(tick) else 0
             stop_loss = round(round(stop_loss / tick) * tick, decimals)
