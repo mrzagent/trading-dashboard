@@ -142,6 +142,9 @@ class SignalIntegrator:
         self.cooldown_minutes = cooldown_minutes if cooldown_minutes is not None else account_settings['cooldown_minutes']
         self.allow_multiple_positions = allow_multiple_positions if allow_multiple_positions is not None else account_settings['allow_multiple_positions']
         self._load_trade_history()
+        
+        # Track last skip reason for execution pipeline
+        self.last_skip_reason = None
     
     def _get_history_file(self) -> str:
         return 'signal_trade_history.json'
@@ -254,22 +257,29 @@ class SignalIntegrator:
         confidence = signal.get('confidence', 0)
         strategy = signal.get('strategy', 'unknown')
         
+        # Reset skip reason
+        self.last_skip_reason = None
+        
         # Filter: Only process allowed strategies
         if strategy not in self.ALLOWED_STRATEGIES:
+            self.last_skip_reason = 'strategy_not_allowed'
             logger.debug(f"Ignoring signal from strategy '{strategy}' (not in allowed list)")
             return None
         
         # Skip HOLD signals
         if action == 'HOLD':
+            self.last_skip_reason = 'hold_signal'
             return None
         
         # Check minimum confidence
         if confidence < self.min_confidence:
+            self.last_skip_reason = 'low_confidence'
             logger.info(f"Skipping {coin} signal: confidence {confidence:.2f} < {self.min_confidence}")
             return None
         
         # Check cooldown (per category: scalp vs swing)
         if self.is_in_cooldown(coin, strategy):
+            self.last_skip_reason = 'cooldown'
             return None
         
         # Check if we already have a position in the SAME category (unless multiple positions allowed)
@@ -286,6 +296,7 @@ class SignalIntegrator:
             
             # Block if same category AND same direction
             if existing_category == category and existing_side == new_side:
+                self.last_skip_reason = 'existing_position'
                 logger.info(f"Already have open {existing_side} {category} position in {symbol} from '{existing_strategy}', skipping new {strategy} {new_side} signal")
                 return None
             else:

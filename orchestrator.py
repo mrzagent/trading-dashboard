@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from signal_integrator import SignalIntegrator
 from trade_executor import RiskConfig
-from db import get_conn, fetch_recent, COINS, signal_envelope, save_signal
+from db import (get_conn, fetch_recent, COINS, signal_envelope, save_signal,
+                create_trade_execution, update_orchestrator_status, update_hyperliquid_status)
 from candle_gate import should_act, mark_acted
 from strategy_risk_config import get_strategy_risk_params, StrategyRiskParams
 
@@ -403,8 +404,9 @@ def main():
                 all_results.append(signal)
                 
                 # Save individual signal to database
+                signal_id = None
                 try:
-                    save_signal(conn, signal, table="trading_signals")
+                    signal_id = save_signal(conn, signal, table="trading_signals")
                 except Exception as e:
                     print(f"[orchestrator] Warning: Failed to save signal for {name}/{coin}: {e}", file=sys.stderr)
                 
@@ -441,7 +443,8 @@ def main():
                             'strategy_type': config.get('type', 'unknown'),
                             'strategy_style': config.get('style', 'unknown')
                         },
-                        'generated_at': datetime.now(timezone.utc).isoformat()
+                        'generated_at': datetime.now(timezone.utc).isoformat(),
+                        'signal_id': signal_id  # Track for execution pipeline
                     }
                     signals_for_execution.append(exec_signal)
             
@@ -478,8 +481,21 @@ def main():
             )
             # Check and manage existing positions first
             integrator.check_and_manage_positions()
-            # Execute new signals
+            # Execute new signals with pipeline tracking
             for signal in signals_for_execution:
+                execution_id = None
+                signal_id = signal.get('signal_id')
+                
+                # Create execution tracking record
+                if signal_id:
+                    try:
+                        execution_id = create_trade_execution(
+                            conn, signal_id, signal['coin'], signal['strategy'],
+                            signal['action'], signal['confidence']
+                        )
+                    except Exception as e:
+                        print(f"[orchestrator] Warning: Failed to create execution record: {e}", file=sys.stderr)
+                
                 result = integrator.process_signal(signal, dry_run=False)
                 if result:
                     executed_trades.append({
@@ -490,8 +506,41 @@ def main():
                         'trade_id': result.get('trade_id')
                     })
                     print(f"[orchestrator] Executed: {signal['strategy']} {signal['coin']} {signal['action']}", file=sys.stderr)
+                    
+                    # Update execution status - orchestrator processed and HyperLiquid success
+                    if execution_id:
+                        try:
+                            update_orchestrator_status(conn, execution_id, processed=True)
+                            update_hyperliquid_status(
+                                conn, execution_id, sent=True, response='success',
+                                order_id=result.get('order_id')
+                            )
+                        except Exception as e:
+                            print(f"[orchestrator] Warning: Failed to update execution status: {e}", file=sys.stderr)
                 else:
-                    print(f"[orchestrator] Skipped: {signal['strategy']} {signal['coin']} (cooldown or filter)", file=sys.stderr)
+                    # Determine if skipped by orchestrator or failed at HyperLiquid
+                    skip_reason = integrator.last_skip_reason if hasattr(integrator, 'last_skip_reason') else None
+                    
+                    if skip_reason:
+                        # Skipped by orchestrator (cooldown, existing position, etc.)
+                        print(f"[orchestrator] Skipped: {signal['strategy']} {signal['coin']} ({skip_reason})", file=sys.stderr)
+                        if execution_id:
+                            try:
+                                update_orchestrator_status(conn, execution_id, processed=False, skip_reason=skip_reason)
+                            except Exception as e:
+                                print(f"[orchestrator] Warning: Failed to update orchestrator status: {e}", file=sys.stderr)
+                    else:
+                        # Failed at HyperLiquid level (order rejected, tick size error, etc.)
+                        print(f"[orchestrator] Failed: {signal['strategy']} {signal['coin']} (HyperLiquid rejected)", file=sys.stderr)
+                        if execution_id:
+                            try:
+                                update_orchestrator_status(conn, execution_id, processed=True)
+                                update_hyperliquid_status(
+                                    conn, execution_id, sent=True, response='failed',
+                                    error='Order rejected by HyperLiquid (tick size, insufficient margin, etc.)'
+                                )
+                            except Exception as e:
+                                print(f"[orchestrator] Warning: Failed to update execution status: {e}", file=sys.stderr)
             integrator.print_status()
         except Exception as e:
             print(f"[orchestrator] Error during trade execution: {e}", file=sys.stderr)
