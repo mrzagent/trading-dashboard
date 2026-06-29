@@ -400,17 +400,22 @@ class HyperliquidClient:
         tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
         tick = tick_sizes.get(coin, 0.01)
         
+        # Use Decimal for precise arithmetic to avoid floating point errors
+        from decimal import Decimal, ROUND_HALF_UP
+        tick_d = Decimal(str(tick))
+        current_price_d = Decimal(str(current_price))
+        
         # For market-like IOC orders, use aggressive pricing with slippage
         if is_buy:
             # Buying - use higher price (0.5% slippage) and round to tick
-            limit_px = round(current_price * 1.005 / tick) * tick
+            limit_px_d = current_price_d * Decimal('1.005')
         else:
             # Selling - use lower price (0.5% slippage) and round to tick
-            limit_px = round(current_price * 0.995 / tick) * tick
+            limit_px_d = current_price_d * Decimal('0.995')
         
-        # Round to appropriate decimal places for the tick size
-        decimals = len(str(tick).split('.')[-1]) if '.' in str(tick) else 0
-        limit_px = round(limit_px, decimals)
+        # Round to tick size using Decimal
+        limit_px_d = (limit_px_d / tick_d).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_d
+        limit_px = float(limit_px_d)
         
         logger.info(f"Closing {coin} position: {current_size} @ market (limit_px=${limit_px})")
         
@@ -1208,20 +1213,29 @@ Reason: {reason}{partial_summary}
         tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
         tick = tick_sizes.get(symbol, 0.01)
         
-        # Round to tick size
-        decimals = len(str(tick).split('.')[-1]) if '.' in str(tick) else 0
-        limit_px = round(round(limit_px / tick) * tick, decimals)
+        # Use Decimal for precise arithmetic to avoid floating point errors
+        from decimal import Decimal, ROUND_HALF_UP
+        tick_d = Decimal(str(tick))
+        
+        # Round to tick size using Decimal
+        limit_px_d = Decimal(str(limit_px))
+        limit_px_d = (limit_px_d / tick_d).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_d
         
         # Apply slippage for market orders to ensure immediate fill
         # HyperLiquid uses IOC limit orders for "market" behavior
         if order_type == "Market":
             if is_buy:
                 # Buying - use higher price (0.5% slippage)
-                limit_px = round(round(limit_px * 1.005 / tick) * tick, decimals)
+                limit_px_d = limit_px_d * Decimal('1.005')
             else:
                 # Selling - use lower price (0.5% slippage)
-                limit_px = round(round(limit_px * 0.995 / tick) * tick, decimals)
+                limit_px_d = limit_px_d * Decimal('0.995')
+            # Round back to tick size after slippage
+            limit_px_d = (limit_px_d / tick_d).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_d
+            limit_px = float(limit_px_d)
             logger.info(f"Using aggressive entry price: ${limit_px:,.2f} (with 0.5% slippage)")
+        else:
+            limit_px = float(limit_px_d)
         
         try:
             # Set leverage on HyperLiquid before placing order
@@ -1714,8 +1728,12 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
             # Round stop loss to tick size for HyperLiquid
             tick_sizes = {'BTC': 1, 'ETH': 0.01, 'SOL': 0.01}
             tick = tick_sizes.get(coin, 0.01)
-            decimals = len(str(tick).split('.')[-1]) if '.' in str(tick) else 0
-            stop_loss = round(round(stop_loss / tick) * tick, decimals)
+            # Use Decimal for precise arithmetic to avoid floating point errors
+            from decimal import Decimal, ROUND_HALF_UP
+            tick_d = Decimal(str(tick))
+            stop_loss_d = Decimal(str(stop_loss))
+            stop_loss_d = (stop_loss_d / tick_d).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick_d
+            stop_loss = float(stop_loss_d)
             
             # Calculate position size
             position_size, position_value, margin_required = executor.calculate_position_size(
