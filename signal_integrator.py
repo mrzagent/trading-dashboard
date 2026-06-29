@@ -282,25 +282,27 @@ class SignalIntegrator:
             self.last_skip_reason = 'cooldown'
             return None
         
-        # Check if we already have a position in the SAME category (unless multiple positions allowed)
+        # Check if we already have a position in the SAME category (scalp vs swing)
+        # Allow one position per category per coin (max 2: one scalp + one swing)
         symbol = coin
         category = get_strategy_category(strategy)
         
         # Check actual positions on HyperLiquid (not just in-memory cache)
         existing_position = self._get_existing_position(symbol)
-        if not self.allow_multiple_positions and existing_position:
+        if existing_position:
             existing_strategy = existing_position.get('strategy')
             existing_category = get_strategy_category(existing_strategy) if existing_strategy else 'swing'
-            existing_side = 'long' if existing_position.get('size', 0) > 0 else 'short'
-            new_side = 'long' if action == 'BUY' else 'short'
             
-            # Block if same category AND same direction
-            if existing_category == category and existing_side == new_side:
-                self.last_skip_reason = 'existing_position'
-                logger.info(f"Already have open {existing_side} {category} position in {symbol} from '{existing_strategy}', skipping new {strategy} {new_side} signal")
+            # Block if same category (regardless of direction)
+            # Different category is allowed (e.g., have swing long, can open scalp long)
+            if existing_category == category:
+                self.last_skip_reason = 'existing_position_same_category'
+                logger.info(f"Already have open {existing_category} position in {symbol} from '{existing_strategy}', skipping new {category} signal from '{strategy}'")
                 return None
             else:
-                logger.info(f"Have {existing_side} {existing_category} position in {symbol} from '{existing_strategy}', but new {new_side} {category} signal from '{strategy}' - allowing")
+                existing_side = 'long' if existing_position.get('size', 0) > 0 else 'short'
+                new_side = 'long' if action == 'BUY' else 'short'
+                logger.info(f"Have {existing_side} {existing_category} position in {symbol} from '{existing_strategy}', allowing new {new_side} {category} signal from '{strategy}'")
         
         # Execute the trade
         logger.info(f"""

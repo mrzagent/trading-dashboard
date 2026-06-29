@@ -747,18 +747,27 @@ class TradeExecutor:
     
     def can_open_position(self, symbol: str, margin_required: float = 0, strategy: Optional[str] = None) -> tuple[bool, str]:
         """Check if we can open a new position"""
-        # Check if already have position in this symbol from SAME strategy
-        # (Different strategies are allowed - checked by signal_integrator)
+        from signal_integrator import get_strategy_category
+        
+        # Get category of new strategy (scalp vs swing)
+        new_category = get_strategy_category(strategy) if strategy else 'swing'
+        
+        # Check if already have position in this symbol from SAME category
+        # (Different categories are allowed: one scalp + one swing per coin)
         if symbol in self.open_trades:
             existing_trade = self.open_trades[symbol]
             existing_strategy = existing_trade.strategy if hasattr(existing_trade, 'strategy') else None
-            if existing_strategy == strategy and strategy is not None:
-                return False, f"Already have open position in {symbol} from same strategy '{strategy}'"
-            # If strategies differ or existing has no strategy, allow (signal_integrator handles this)
+            existing_category = get_strategy_category(existing_strategy) if existing_strategy else 'swing'
+            
+            # Block if same category (regardless of strategy name)
+            if existing_category == new_category:
+                return False, f"Already have open {existing_category} position in {symbol}"
+            # Different category is allowed (e.g., have swing, opening scalp)
         
-        # Check max positions limit
-        if len(self.open_trades) >= self.risk.max_open_positions:
-            return False, f"Max open positions reached ({self.risk.max_open_positions})"
+        # Check per-coin position limit (max 2: one scalp + one swing)
+        coin_positions = [t for s, t in self.open_trades.items() if s == symbol]
+        if len(coin_positions) >= 2:
+            return False, f"Max positions reached for {symbol} (2 max: one scalp + one swing)"
         
         # Check available margin (sum of margin_required for open positions)
         total_margin_used = sum(t.margin_required for t in self.open_trades.values())
