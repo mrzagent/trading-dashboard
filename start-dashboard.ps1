@@ -3,7 +3,7 @@
 .SYNOPSIS
     Start the Trading Dashboard
 .DESCRIPTION
-    Starts both the API server and the React client in development mode
+    Starts both the API server and the React client
 #>
 
 param(
@@ -21,7 +21,7 @@ function Write-Header($text) {
     Write-Host ""
 }
 
-Write-Header "Trading Dashboard Starter"
+Write-Header "Trading Dashboard"
 
 # Check if we're in the right directory
 if (-not (Test-Path "dashboard/server/index.js")) {
@@ -29,18 +29,26 @@ if (-not (Test-Path "dashboard/server/index.js")) {
     exit 1
 }
 
+# Kill any existing node processes on port 3001
+$existing = Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue
+if ($existing) {
+    Write-Host "Port 3001 in use, stopping existing process..." -ForegroundColor Yellow
+    Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 2
+}
+
 # Start Server
 if (-not $ClientOnly) {
     Write-Header "Starting API Server (Port 3001)"
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot'; cd dashboard/server; node index.js" -WindowStyle Normal
-    Write-Host "Server starting... wait a few seconds" -ForegroundColor Green
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot\dashboard\server'; node index.js" -WindowStyle Normal
+    Write-Host "Server starting..." -ForegroundColor Green
     Start-Sleep -Seconds 3
 }
 
 # Start Client
 if (-not $ServerOnly) {
     Write-Header "Starting React Client (Port 5173)"
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot'; cd dashboard; npm run dev" -WindowStyle Normal
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot\dashboard'; npm run dev" -WindowStyle Normal
     Write-Host "Client starting..." -ForegroundColor Green
 }
 
