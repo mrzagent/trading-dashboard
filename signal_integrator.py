@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
 from trade_executor import TradeExecutor, RiskConfig, execute_signal
+from config_loader import get_credentials_for_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,13 @@ class SignalIntegrator:
         else:
             self.risk_config = risk_config
         
-        self.executor = TradeExecutor(self.risk_config)
+        # Create separate executors for swing and scalp strategies
+        # This prevents position stacking and enables separate wallet tracking
+        self.swing_executor = None
+        self.scalp_executor = None
+        self._risk_config = self.risk_config  # Store for lazy executor creation
+        self._test_mode = test_mode  # Store for lazy executor creation
+        
         self.test_mode = test_mode
         self.min_confidence = min_confidence
         self.cooldown_minutes = cooldown_minutes if cooldown_minutes is not None else account_settings['cooldown_minutes']
@@ -148,29 +155,77 @@ class SignalIntegrator:
         # Track last skip reason for execution pipeline
         self.last_skip_reason = None
     
+    def _get_executor_for_strategy(self, strategy: str) -> TradeExecutor:
+        """Get or create the appropriate executor for a strategy type (swing vs scalp).
+        
+        Each strategy type uses a separate wallet to prevent position stacking
+        and enable clear P&L attribution.
+        """
+        creds = get_credentials_for_strategy(strategy)
+        wallet_type = creds.get('wallet_type', 'swing')
+        
+        if wallet_type == 'scalp':
+            if self.scalp_executor is None:
+                logger.info(f"Creating SCALP executor with wallet: {creds['wallet'][:20]}...")
+                self.scalp_executor = TradeExecutor(
+                    risk_config=self._risk_config,
+                    wallet_address=creds['wallet'],
+                    private_key=creds['private_key'],
+                    api_url=creds['api_url']
+                )
+            return self.scalp_executor
+        else:
+            if self.swing_executor is None:
+                logger.info(f"Creating SWING executor with wallet: {creds['wallet'][:20]}...")
+                self.swing_executor = TradeExecutor(
+                    risk_config=self._risk_config,
+                    wallet_address=creds['wallet'],
+                    private_key=creds['private_key'],
+                    api_url=creds['api_url']
+                )
+            return self.swing_executor
+    
     def _get_history_file(self) -> str:
         return 'signal_trade_history.json'
     
-    def _get_existing_position(self, coin: str) -> Optional[Dict]:
+    def _get_existing_position(self, coin: str, strategy: str = None) -> Optional[Dict]:
         """Check if there's an actual open position on HyperLiquid for this coin.
         
-        Returns position dict with size, strategy, etc. or None if no position.
+        With wallet separation, we check the appropriate wallet based on strategy type.
+        Swing strategies check swing wallet, scalp strategies check scalp wallet.
+        
+        Args:
+            coin: The coin to check (BTC, ETH, SOL)
+            strategy: Optional strategy name to determine which wallet to check
+        
+        Returns position dict with size, strategy, wallet_type, etc. or None if no position.
         """
         try:
-            positions = self.executor.client.get_positions()
+            # Determine which executor/wallet to check based on strategy
+            if strategy:
+                executor = self._get_executor_for_strategy(strategy)
+                creds = get_credentials_for_strategy(strategy)
+                wallet_type = creds.get('wallet_type', 'swing')
+            else:
+                # Default to swing executor if no strategy specified
+                executor = self.swing_executor or self._get_executor_for_strategy('swing')
+                wallet_type = 'swing'
+            
+            positions = executor.client.get_positions()
             for pos in positions:
                 if pos.get('coin') == coin and abs(pos.get('size', 0)) > 0:
                     # Found an open position - try to find strategy from trade history
-                    strategy = None
+                    position_strategy = None
                     for trade in reversed(self.signal_history):
                         if trade.get('coin') == coin:
-                            strategy = trade.get('strategy')
+                            position_strategy = trade.get('strategy')
                             break
                     return {
                         'coin': coin,
                         'size': pos.get('size'),
                         'entry_px': pos.get('entry_px'),
-                        'strategy': strategy
+                        'strategy': position_strategy,
+                        'wallet_type': wallet_type
                     }
         except Exception as e:
             logger.warning(f"Failed to check existing positions: {e}")
@@ -297,7 +352,8 @@ class SignalIntegrator:
         category = get_strategy_category(strategy)
         
         # Check actual positions on HyperLiquid (not just in-memory cache)
-        existing_position = self._get_existing_position(symbol)
+        # With wallet separation, we check the appropriate wallet for this strategy
+        existing_position = self._get_existing_position(symbol, strategy)
         if existing_position:
             existing_strategy = existing_position.get('strategy')
             existing_category = get_strategy_category(existing_strategy) if existing_strategy else 'swing'
@@ -369,8 +425,15 @@ Dry Run: {dry_run}
             logger.info(f"[DRY RUN] Would execute: {result}")
             return result
         
-        # Real execution
-        trade = execute_signal(signal, test_mode=self.test_mode)
+        # Real execution - use correct wallet for strategy type
+        creds = get_credentials_for_strategy(strategy)
+        trade = execute_signal(
+            signal,
+            test_mode=self.test_mode,
+            wallet_address=creds['wallet'],
+            private_key=creds['private_key'],
+            api_url=creds['api_url']
+        )
         
         if trade:
             # Set cooldown after successful trade (using configured cooldown_minutes)

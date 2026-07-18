@@ -25,6 +25,7 @@ from db import (get_conn, fetch_recent, COINS, signal_envelope, save_signal,
                 create_trade_execution, update_orchestrator_status, update_hyperliquid_status)
 from candle_gate import should_act, mark_acted
 from strategy_risk_config import get_strategy_risk_params, StrategyRiskParams
+from config_loader import get_swing_credentials, get_scalp_credentials, get_credentials_for_strategy
 
 
 # Path to strategy state file (managed by dashboard)

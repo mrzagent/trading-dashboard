@@ -1622,7 +1622,10 @@ Reason: {reason}{partial_summary}
             print("="*60)
 
 
-def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
+def execute_signal(signal: Dict, test_mode: bool = True,
+                   wallet_address: Optional[str] = None,
+                   private_key: Optional[str] = None,
+                   api_url: Optional[str] = None) -> Optional[Trade]:
     """
     Execute a trading signal
     
@@ -1639,6 +1642,13 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
             ...
         }
     }
+    
+    Args:
+        signal: Trading signal dictionary
+        test_mode: If True, simulate trades without real execution
+        wallet_address: Optional wallet address (uses env var if not provided)
+        private_key: Optional private key (uses env var if not provided)
+        api_url: Optional API URL (uses env var if not provided)
     """
     # Check if trading is enabled
     from signal_integrator import load_account_settings
@@ -1716,7 +1726,14 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
         max_open_positions=3 if not settings['allow_multiple_positions'] else 10
     )
     
-    executor = TradeExecutor(risk_config)
+    # Create executor with optional wallet credentials
+    # This allows different strategies to use different wallets (swing vs scalp)
+    executor = TradeExecutor(
+        risk_config=risk_config,
+        wallet_address=wallet_address,
+        private_key=private_key,
+        api_url=api_url
+    )
     
     # Get strategy from signal
     strategy = signal.get('strategy', 'unknown')
