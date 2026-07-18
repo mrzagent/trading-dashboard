@@ -61,7 +61,7 @@ def signal_envelope(strategy: str, coin: str, action: str,
     }
 
 
-def save_signal(conn, signal: dict, table: str = "strategy_signals") -> int:
+def save_signal(conn, signal: dict, table: str = "strategy_signals", wallet_type: str = None) -> int:
     """
     Save a signal to the database.
     
@@ -69,15 +69,22 @@ def save_signal(conn, signal: dict, table: str = "strategy_signals") -> int:
         conn: Database connection
         signal: Signal dict from signal_envelope()
         table: Target table name (default: strategy_signals)
+        wallet_type: Optional 'swing' or 'scalp' for wallet separation tracking
     
     Returns:
         ID of the inserted row
     """
     import json
+    from config_loader import get_wallet_type_for_strategy
+    
+    # Auto-detect wallet type from strategy if not provided
+    if wallet_type is None:
+        strategy_name = signal.get('strategy', '')
+        wallet_type = get_wallet_type_for_strategy(strategy_name)
     
     sql = f"""
-        INSERT INTO {table} (strategy, coin, action, confidence, reason, meta, generated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO {table} (strategy, coin, action, confidence, reason, meta, generated_at, wallet_type)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """
     
@@ -89,7 +96,8 @@ def save_signal(conn, signal: dict, table: str = "strategy_signals") -> int:
             signal['confidence'],
             signal['reason'],
             json.dumps(signal.get('meta', {})),
-            signal.get('generated_at', datetime.now(tz=timezone.utc).isoformat())
+            signal.get('generated_at', datetime.now(tz=timezone.utc).isoformat()),
+            wallet_type
         ))
         row_id = cur.fetchone()[0]
     
@@ -98,7 +106,8 @@ def save_signal(conn, signal: dict, table: str = "strategy_signals") -> int:
 
 
 def create_trade_execution(conn, signal_id: int, coin: str, strategy: str, 
-                           action: str, confidence: float) -> int:
+                           action: str, confidence: float, wallet_type: str = None,
+                           wallet_address: str = None) -> int:
     """
     Create a trade execution record to track the pipeline status.
     
@@ -109,18 +118,27 @@ def create_trade_execution(conn, signal_id: int, coin: str, strategy: str,
         strategy: Strategy name
         action: 'BUY' or 'SELL'
         confidence: Signal confidence (0-1)
+        wallet_type: Optional 'swing' or 'scalp' for wallet separation
+        wallet_address: Optional wallet address that will execute the trade
     
     Returns:
         ID of the created execution record
     """
+    from config_loader import get_wallet_type_for_strategy
+    
+    # Auto-detect wallet type from strategy if not provided
+    if wallet_type is None:
+        wallet_type = get_wallet_type_for_strategy(strategy)
+    
     sql = """
         INSERT INTO trade_executions (signal_id, coin, strategy, action, confidence,
-                                      signal_generated, signal_generated_at, status)
-        VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), 'pending')
+                                      signal_generated, signal_generated_at, status,
+                                      wallet_type, wallet_address)
+        VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), 'pending', %s, %s)
         RETURNING id
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (signal_id, coin, strategy, action, confidence))
+        cur.execute(sql, (signal_id, coin, strategy, action, confidence, wallet_type, wallet_address))
         execution_id = cur.fetchone()[0]
     conn.commit()
     return execution_id
