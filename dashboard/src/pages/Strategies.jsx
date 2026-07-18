@@ -1,12 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import "./Strategies.css";
 import {
-  CoinCard,
   Countdown,
-  HealthMonitor,
   HistoryTabs,
   PositionsTable,
-  RiskSummary,
   SignalsList,
   StrategyCard,
   TradeExecutionPipeline,
@@ -391,9 +388,6 @@ export default function Strategies() {
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState(null);
 
-  // Account/trading status state
-  const [account, setAccount] = useState(null);
-
   // Countdown state
   const [dataCountdownMs, setDataCountdownMs] = useState(0);
   const [orchestratorCountdown, setOrchestratorCountdown] = useState(null);
@@ -512,14 +506,13 @@ export default function Strategies() {
     }
   }, []);
 
-  // Fetch positions, signals, and account data
+  // Fetch positions and signals data
   const fetchPositionsAndSignals = useCallback(async () => {
     try {
       setDataLoading(true);
-      const [positionsRes, signalsRes, accountRes] = await Promise.all([
+      const [positionsRes, signalsRes] = await Promise.all([
         fetch("http://localhost:3001/api/trading/positions"),
         fetch("http://localhost:3001/api/trading/signals?limit=10"),
-        fetch("http://localhost:3001/api/trading/account"),
       ]);
 
       if (positionsRes.ok) {
@@ -533,33 +526,11 @@ export default function Strategies() {
         const sigData = await signalsRes.json();
         setSignals(sigData);
       }
-
-      if (accountRes.ok) {
-        const accData = await accountRes.json();
-        setAccount(accData);
-      }
       setDataError(null);
     } catch (err) {
       setDataError(err.message);
     } finally {
       setDataLoading(false);
-    }
-  }, []);
-
-  // Update account settings
-  const updateAccountSettings = useCallback(async (settings) => {
-    try {
-      const res = await fetch("http://localhost:3001/api/trading/account", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAccount((prev) => ({ ...prev, ...settings }));
-      }
-    } catch (err) {
-      console.error("Failed to update settings:", err);
     }
   }, []);
 
@@ -611,46 +582,6 @@ export default function Strategies() {
             remainingMs={dataCountdownMs} 
             sourceName={dataConfig.source?.name || "HyperLiquid"}
           />
-        </div>
-      </div>
-
-      {/* Trading Status / Risk Summary */}
-      <RiskSummary account={account} onUpdateSettings={updateAccountSettings} />
-
-      {/* Market Overview */}
-      <div className="strategies-section d-flex f-dir-row">
-        <div className="market-wrapper">
-          <h2 className="section-title">
-            Market Overview
-            {priceLoading && (
-              <span className="meta-loading"> · Loading...</span>
-            )}
-          </h2>
-          {priceError ? (
-            <p className="strategies-error">{priceError}</p>
-          ) : priceData?.latest ? (
-            <div className="coin-grid">
-              {[...priceData.latest]
-                .sort((a, b) => {
-                  const ai = COIN_ORDER.indexOf(a.coin);
-                  const bi = COIN_ORDER.indexOf(b.coin);
-                  if (ai === -1 && bi === -1)
-                    return a.coin.localeCompare(b.coin);
-                  if (ai === -1) return 1;
-                  if (bi === -1) return -1;
-                  return ai - bi;
-                })
-                .map((row) => (
-                  <CoinCard key={row.coin} row={row} />
-                ))}
-            </div>
-          ) : (
-            <p className="strategies-empty">No price data available</p>
-          )}
-        </div>
-        <div className="w-50">
-          {/* System Health Monitor */}
-          <HealthMonitor />
         </div>
       </div>
 
