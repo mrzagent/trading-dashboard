@@ -199,14 +199,16 @@ class HyperliquidClient:
     MAINNET_URL = "https://api.hyperliquid.xyz"
     
     def __init__(self, wallet_address: Optional[str] = None, private_key: Optional[str] = None, 
-                 environment: str = 'testnet', api_url: Optional[str] = None):
+                 environment: str = 'testnet', api_url: Optional[str] = None,
+                 main_wallet: Optional[str] = None):
         """Initialize HyperLiquid client.
         
         Args:
-            wallet_address: Wallet address for trading
-            private_key: Private key for signing transactions
+            wallet_address: Agent wallet address for signing transactions
+            private_key: Private key for agent wallet
             environment: 'testnet' or 'mainnet'
             api_url: Optional custom API URL (overrides environment default)
+            main_wallet: Main wallet address that holds the funds (for account_address)
         """
         self.environment = environment
         self.base_url = api_url or (self.MAINNET_URL if environment == 'mainnet' else self.TESTNET_URL)
@@ -216,8 +218,10 @@ class HyperliquidClient:
         self.private_key = private_key or os.getenv('HYPERLIQUID_PRIVATE_KEY')
         self.session = requests.Session()
         
-        # Main wallet has the funds (different for testnet vs mainnet)
-        if environment == 'mainnet':
+        # Main wallet has the funds (can be passed in or read from env)
+        if main_wallet:
+            self.MAIN_WALLET = main_wallet
+        elif environment == 'mainnet':
             self.MAIN_WALLET = os.getenv('HYPERLIQUID_MAINNET_WALLET', '0x97c465489243175580fcDe624c2ef640c1897a00')
         else:
             self.MAIN_WALLET = '0x97c465489243175580fcde624c2ef640c1897a00'  # Testnet wallet
@@ -237,7 +241,7 @@ class HyperliquidClient:
                     account_address=self.MAIN_WALLET,
                     meta=self._meta
                 )
-                logger.info(f"HyperLiquid SDK initialized successfully ({environment})")
+                logger.info(f"HyperLiquid SDK initialized successfully ({environment}, main: {self.MAIN_WALLET[:20]}...)")
             except Exception as e:
                 logger.error(f"Failed to initialize HyperLiquid SDK: {e}")
         
@@ -541,22 +545,25 @@ class TradeExecutor:
                  wallet_address: Optional[str] = None,
                  private_key: Optional[str] = None,
                  environment: str = 'testnet',
-                 api_url: Optional[str] = None):
+                 api_url: Optional[str] = None,
+                 main_wallet: Optional[str] = None):
         """Initialize TradeExecutor.
         
         Args:
             risk_config: Risk management configuration
-            wallet_address: Wallet address for trading
-            private_key: Private key for signing
+            wallet_address: Agent wallet address for signing transactions
+            private_key: Private key for agent wallet
             environment: 'testnet' or 'mainnet'
             api_url: Optional custom API URL
+            main_wallet: Main wallet address that holds the funds (for account_address)
         """
         self.environment = environment
+        self.main_wallet = main_wallet  # Store for state file naming
         
         # If no risk config provided, fetch actual account balance from HyperLiquid
         if risk_config is None:
             try:
-                client = HyperliquidClient(wallet_address, private_key, environment, api_url)
+                client = HyperliquidClient(wallet_address, private_key, environment, api_url, main_wallet)
                 account_balance = client.get_balance()
                 # Use at least $100 to avoid tiny positions during testing
                 initial_capital = max(account_balance, 100.0)
@@ -571,12 +578,17 @@ class TradeExecutor:
                        f"${self.risk.risk_per_trade:.2f} risk per trade ({self.risk.risk_per_trade_pct*100:.1f}%), "
                        f"{self.risk.leverage}x leverage")
 
-        self.client = HyperliquidClient(wallet_address, private_key, environment, api_url)
+        self.client = HyperliquidClient(wallet_address, private_key, environment, api_url, main_wallet)
         self.open_trades: Dict[str, Trade] = {}  # symbol -> Trade
         self.trade_history: list = []
         self._load_state()
     
     def _get_state_file(self) -> str:
+        """Get state file path, using separate files for different main wallets."""
+        if self.main_wallet:
+            # Use wallet address to create unique state file per wallet
+            wallet_short = self.main_wallet[-8:]  # Last 8 chars of address
+            return f'trade_state_{wallet_short}.json'
         return 'trade_state.json'
     
     def _load_state(self):
@@ -1625,7 +1637,8 @@ Reason: {reason}{partial_summary}
 def execute_signal(signal: Dict, test_mode: bool = True,
                    wallet_address: Optional[str] = None,
                    private_key: Optional[str] = None,
-                   api_url: Optional[str] = None) -> Optional[Trade]:
+                   api_url: Optional[str] = None,
+                   main_wallet: Optional[str] = None) -> Optional[Trade]:
     """
     Execute a trading signal
     
@@ -1646,9 +1659,10 @@ def execute_signal(signal: Dict, test_mode: bool = True,
     Args:
         signal: Trading signal dictionary
         test_mode: If True, simulate trades without real execution
-        wallet_address: Optional wallet address (uses env var if not provided)
-        private_key: Optional private key (uses env var if not provided)
+        wallet_address: Optional agent wallet address for signing (uses env var if not provided)
+        private_key: Optional agent private key (uses env var if not provided)
         api_url: Optional API URL (uses env var if not provided)
+        main_wallet: Optional main wallet address that holds funds (for account_address)
     """
     # Check if trading is enabled
     from signal_integrator import load_account_settings
@@ -1732,7 +1746,8 @@ def execute_signal(signal: Dict, test_mode: bool = True,
         risk_config=risk_config,
         wallet_address=wallet_address,
         private_key=private_key,
-        api_url=api_url
+        api_url=api_url,
+        main_wallet=main_wallet
     )
     
     # Get strategy from signal

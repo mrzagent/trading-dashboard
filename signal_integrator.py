@@ -166,22 +166,24 @@ class SignalIntegrator:
         
         if wallet_type == 'scalp':
             if self.scalp_executor is None:
-                logger.info(f"Creating SCALP executor with wallet: {creds['wallet'][:20]}...")
+                logger.info(f"Creating SCALP executor with main: {creds['main_wallet'][:20]}..., agent: {creds['agent_wallet'][:20]}...")
                 self.scalp_executor = TradeExecutor(
                     risk_config=self._risk_config,
-                    wallet_address=creds['wallet'],
-                    private_key=creds['private_key'],
-                    api_url=creds['api_url']
+                    wallet_address=creds['agent_wallet'],
+                    private_key=creds['agent_private_key'],
+                    api_url=creds['api_url'],
+                    main_wallet=creds['main_wallet']
                 )
             return self.scalp_executor
         else:
             if self.swing_executor is None:
-                logger.info(f"Creating SWING executor with wallet: {creds['wallet'][:20]}...")
+                logger.info(f"Creating SWING executor with main: {creds['main_wallet'][:20]}..., agent: {creds['agent_wallet'][:20]}...")
                 self.swing_executor = TradeExecutor(
                     risk_config=self._risk_config,
-                    wallet_address=creds['wallet'],
-                    private_key=creds['private_key'],
-                    api_url=creds['api_url']
+                    wallet_address=creds['agent_wallet'],
+                    private_key=creds['agent_private_key'],
+                    api_url=creds['api_url'],
+                    main_wallet=creds['main_wallet']
                 )
             return self.swing_executor
     
@@ -430,9 +432,10 @@ Dry Run: {dry_run}
         trade = execute_signal(
             signal,
             test_mode=self.test_mode,
-            wallet_address=creds['wallet'],
-            private_key=creds['private_key'],
-            api_url=creds['api_url']
+            wallet_address=creds['agent_wallet'],
+            private_key=creds['agent_private_key'],
+            api_url=creds['api_url'],
+            main_wallet=creds['main_wallet']
         )
         
         if trade:

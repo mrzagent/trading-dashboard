@@ -5,6 +5,11 @@ Unified configuration loader for the trading system.
 Loads environment variables from the project .env file.
 All scripts should import from here instead of using os.environ directly.
 
+Wallet Structure:
+- Each strategy type (SWING/SCALP) has:
+  - Main wallet: Holds the funds
+  - Agent wallet: Signs transactions (has private key)
+
 Usage:
     from config_loader import DB_CONFIG, get_swing_credentials, get_scalp_credentials
 """
@@ -44,19 +49,22 @@ DB_CONFIG_LEGACY = {
 # --- HyperLiquid Configuration by Strategy Type ---
 # SWING strategies: Longer hold times (1h, 4h, 15m)
 # SCALP strategies: Short hold times (5m)
+# Each has: Main wallet (funds) + Agent wallet (signs transactions)
 
 HYPERLIQUID_ENV = os.getenv("HYPERLIQUID_ENV", "testnet")
 
 # SWING Trading Wallets (for swing strategies)
 SWING_CONFIG = {
     "testnet": {
-        "private_key": os.getenv("HYPERLIQUID_SWING_TESTNET_PRIVATE_KEY", ""),
-        "wallet": os.getenv("HYPERLIQUID_SWING_TESTNET_WALLET", ""),
+        "main_wallet": os.getenv("HYPERLIQUID_SWING_TESTNET_MAIN_WALLET", ""),
+        "agent_wallet": os.getenv("HYPERLIQUID_SWING_TESTNET_AGENT_WALLET", ""),
+        "agent_private_key": os.getenv("HYPERLIQUID_SWING_TESTNET_AGENT_PRIVATE_KEY", ""),
         "api_url": "https://api.hyperliquid-testnet.xyz",
     },
     "mainnet": {
-        "private_key": os.getenv("HYPERLIQUID_SWING_MAINNET_PRIVATE_KEY", ""),
-        "wallet": os.getenv("HYPERLIQUID_SWING_MAINNET_WALLET", ""),
+        "main_wallet": os.getenv("HYPERLIQUID_SWING_MAINNET_MAIN_WALLET", ""),
+        "agent_wallet": os.getenv("HYPERLIQUID_SWING_MAINNET_AGENT_WALLET", ""),
+        "agent_private_key": os.getenv("HYPERLIQUID_SWING_MAINNET_AGENT_PRIVATE_KEY", ""),
         "api_url": "https://api.hyperliquid.xyz",
     },
 }
@@ -64,13 +72,15 @@ SWING_CONFIG = {
 # SCALP Trading Wallets (for scalp strategies)
 SCALP_CONFIG = {
     "testnet": {
-        "private_key": os.getenv("HYPERLIQUID_SCALP_TESTNET_PRIVATE_KEY", ""),
-        "wallet": os.getenv("HYPERLIQUID_SCALP_TESTNET_WALLET", ""),
+        "main_wallet": os.getenv("HYPERLIQUID_SCALP_TESTNET_MAIN_WALLET", ""),
+        "agent_wallet": os.getenv("HYPERLIQUID_SCALP_TESTNET_AGENT_WALLET", ""),
+        "agent_private_key": os.getenv("HYPERLIQUID_SCALP_TESTNET_AGENT_PRIVATE_KEY", ""),
         "api_url": "https://api.hyperliquid-testnet.xyz",
     },
     "mainnet": {
-        "private_key": os.getenv("HYPERLIQUID_SCALP_MAINNET_PRIVATE_KEY", ""),
-        "wallet": os.getenv("HYPERLIQUID_SCALP_MAINNET_WALLET", ""),
+        "main_wallet": os.getenv("HYPERLIQUID_SCALP_MAINNET_MAIN_WALLET", ""),
+        "agent_wallet": os.getenv("HYPERLIQUID_SCALP_MAINNET_AGENT_WALLET", ""),
+        "agent_private_key": os.getenv("HYPERLIQUID_SCALP_MAINNET_AGENT_PRIVATE_KEY", ""),
         "api_url": "https://api.hyperliquid.xyz",
     },
 }
@@ -78,13 +88,13 @@ SCALP_CONFIG = {
 # Legacy config (for backward compatibility)
 HYPERLIQUID_CONFIG = {
     "testnet": {
-        "private_key": os.getenv("HYPERLIQUID_TESTNET_PRIVATE_KEY", ""),
         "wallet": os.getenv("HYPERLIQUID_TESTNET_WALLET", ""),
+        "private_key": os.getenv("HYPERLIQUID_TESTNET_PRIVATE_KEY", ""),
         "api_url": "https://api.hyperliquid-testnet.xyz/info",
     },
     "mainnet": {
-        "private_key": os.getenv("HYPERLIQUID_MAINNET_PRIVATE_KEY", ""),
         "wallet": os.getenv("HYPERLIQUID_MAINNET_WALLET", ""),
+        "private_key": os.getenv("HYPERLIQUID_MAINNET_PRIVATE_KEY", ""),
         "api_url": "https://api.hyperliquid.xyz/info",
     },
 }
@@ -140,11 +150,15 @@ def get_swing_credentials(env: str = None) -> dict:
     """
     Get SWING trading wallet credentials.
     
+    Returns dict with:
+        - main_wallet: Address that holds the funds
+        - agent_wallet: Address that signs transactions
+        - agent_private_key: Private key for agent wallet
+        - api_url: HyperLiquid API endpoint
+        - wallet_type: "swing"
+    
     Args:
         env: 'testnet' or 'mainnet'. If None, uses HYPERLIQUID_ENV from .env
-    
-    Returns:
-        dict with private_key, wallet, api_url, wallet_type="swing"
     """
     target_env = env or HYPERLIQUID_ENV
     if target_env not in SWING_CONFIG:
@@ -153,6 +167,11 @@ def get_swing_credentials(env: str = None) -> dict:
     creds = SWING_CONFIG[target_env].copy()
     creds["env"] = target_env
     creds["wallet_type"] = "swing"
+    
+    # For backward compatibility with TradeExecutor
+    creds["wallet"] = creds["agent_wallet"]
+    creds["private_key"] = creds["agent_private_key"]
+    
     return creds
 
 
@@ -160,11 +179,15 @@ def get_scalp_credentials(env: str = None) -> dict:
     """
     Get SCALP trading wallet credentials.
     
+    Returns dict with:
+        - main_wallet: Address that holds the funds
+        - agent_wallet: Address that signs transactions
+        - agent_private_key: Private key for agent wallet
+        - api_url: HyperLiquid API endpoint
+        - wallet_type: "scalp"
+    
     Args:
         env: 'testnet' or 'mainnet'. If None, uses HYPERLIQUID_ENV from .env
-    
-    Returns:
-        dict with private_key, wallet, api_url, wallet_type="scalp"
     """
     target_env = env or HYPERLIQUID_ENV
     if target_env not in SCALP_CONFIG:
@@ -173,6 +196,11 @@ def get_scalp_credentials(env: str = None) -> dict:
     creds = SCALP_CONFIG[target_env].copy()
     creds["env"] = target_env
     creds["wallet_type"] = "scalp"
+    
+    # For backward compatibility with TradeExecutor
+    creds["wallet"] = creds["agent_wallet"]
+    creds["private_key"] = creds["agent_private_key"]
+    
     return creds
 
 
@@ -185,7 +213,7 @@ def get_credentials_for_strategy(strategy_name: str, env: str = None) -> dict:
         env: 'testnet' or 'mainnet'. If None, uses HYPERLIQUID_ENV from .env
     
     Returns:
-        dict with private_key, wallet, api_url, wallet_type
+        dict with main_wallet, agent_wallet, agent_private_key, api_url, wallet_type
     """
     wallet_type = get_wallet_type_for_strategy(strategy_name)
     
@@ -203,7 +231,7 @@ def get_hyperliquid_credentials(env: str = None) -> dict:
         env: 'testnet' or 'mainnet'. If None, uses HYPERLIQUID_ENV from .env
     
     Returns:
-        dict with private_key, wallet, api_url
+        dict with wallet, private_key, api_url
     """
     return get_swing_credentials(env)
 
@@ -251,8 +279,9 @@ def sync_to_environ():
     
     # Default to swing wallet for legacy compatibility
     swing = get_swing_credentials()
-    os.environ.setdefault("HYPERLIQUID_WALLET", swing["wallet"])
-    os.environ.setdefault("HYPERLIQUID_PRIVATE_KEY", swing["private_key"])
+    os.environ.setdefault("HYPERLIQUID_WALLET", swing["agent_wallet"])
+    os.environ.setdefault("HYPERLIQUID_PRIVATE_KEY", swing["agent_private_key"])
+    os.environ.setdefault("HYPERLIQUID_MAINNET_WALLET", swing["main_wallet"])
 
 
 # Auto-sync on import (can be disabled by setting TRADING_CONFIG_NO_SYNC=1)
@@ -276,14 +305,16 @@ if __name__ == "__main__":
     print()
     print("HyperLiquid Environment:", HYPERLIQUID_ENV)
     print()
-    print("SWING Wallet:")
+    print("SWING Wallets:")
     swing = get_swing_credentials()
-    print(f"  Wallet: {swing['wallet'][:20]}...")
+    print(f"  Main (funds):    {swing['main_wallet'][:20]}...")
+    print(f"  Agent (signer):  {swing['agent_wallet'][:20]}...")
     print(f"  API URL: {swing['api_url']}")
     print()
-    print("SCALP Wallet:")
+    print("SCALP Wallets:")
     scalp = get_scalp_credentials()
-    print(f"  Wallet: {scalp['wallet'][:20]}...")
+    print(f"  Main (funds):    {scalp['main_wallet'][:20]}...")
+    print(f"  Agent (signer):  {scalp['agent_wallet'][:20]}...")
     print(f"  API URL: {scalp['api_url']}")
     print()
     print("Strategy Wallet Types:")
