@@ -1,5 +1,5 @@
 TRADING REPORT
-Saturday, July 18 - 15:04 (Bucharest)
+Saturday, July 18 - 22:41 (Bucharest)
 
 BTC $64,002
 ETH $1,845
@@ -11,6 +11,6 @@ ETH | No Signal
 SOL | No Signal
 
 Open Positions: 3
-SOL | short | 3x | $74.00 | PnL - $0.62
-ETH | long | 3x | $1,591 | PnL - $8.30
-BTC | long | 3x | $60,555 | PnL - $3.00
+SOL | short | 3x | $74.00 | PnL - $0.80
+ETH | long | 3x | $1,591 | PnL - $8.57
+BTC | long | 3x | $60,555 | PnL - $3.30
