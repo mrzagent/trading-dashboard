@@ -13,12 +13,12 @@ from pathlib import Path
 # Telegram config
 TELEGRAM_TOKEN = "8603775714:AAE3h8fsTGI-FO8p5O8r5h9GxlcSYFChCgg"
 CHAT_ID = "8305325794"
-REPORT_FILE = Path("D:/dev/trading/.latest_report.txt")
+REPORT_FILE = Path("D:/dev/trading-dashboard/.latest_report.txt")
 
 def generate_report():
     """Generate the trading report"""
     print("Generating trading report...")
-    os.chdir("D:/dev/trading")
+    os.chdir("D:/dev/trading-dashboard")
     
     # Activate venv if it exists
     venv_python = Path(".venv/Scripts/python.exe")

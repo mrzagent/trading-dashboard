@@ -6,10 +6,10 @@ import sys
 import os
 from datetime import datetime, timedelta
 
-sys.path.insert(0, r'D:\dev\trading')
-os.chdir(r'D:\dev\trading')
+sys.path.insert(0, r'D:\\dev\\trading-dashboard')
+os.chdir(r'D:\\dev\\trading-dashboard')
 
-REPORT_FILE = r'D:\dev\trading\.latest_report.txt'
+REPORT_FILE = r'D:\\dev\\trading-dashboard\.latest_report.txt'
 COINS = ['BTC', 'ETH', 'SOL']
 
 def get_latest_prices():

@@ -1,14 +1,11 @@
 import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import homeIcon from "../assets/home.svg";
-import agentsIcon from "../assets/agents.svg";
 import tradeIcon from "../assets/trade.svg";
-import settingsIcon from "../assets/settings.svg";
 import "./Sidebar.css";
 
 const NAV_ITEMS = [
   { icon: homeIcon, label: "Home", to: "/" },
-  { icon: agentsIcon, label: "Agents", to: "/agents" },
   { icon: tradeIcon, label: "Strategies", to: "/strategies" },
 ];
 

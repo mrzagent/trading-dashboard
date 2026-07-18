@@ -35,7 +35,205 @@ function calcCost(model, tokensIn, tokensOut) {
   return (tokensIn / 1_000_000) * p.in + (tokensOut / 1_000_000) * p.out;
 }
 
-// â”€â”€ Model Utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ OpenClaw session log reader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const OPENCLAW_AGENTS_DIR = 'C:\\Users\\mrztms\\.openclaw\\agents';
+
+const AGENT_DISPLAY_NAMES = {
+  main:       'Danny',
+  livingston: 'Livingston',
+  reuben:     'Reuben',
+  rusty:      'Rusty',
+  saul:       'Saul',
+  turk:       'Turk',
+  frank:      'Frank',
+  linus:      'Linus',
+  virgil:     'Virgil',
+  basher:     'Basher',
+  yen:        'Yen',
+};
+
+const AGENTS_DIR = 'D:\\agents';
+const WORKSPACE_DIR = 'C:\\Users\\mrztms\\.openclaw';
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
+
+// Map display name -> folder name for IDENTITY.md lookup
+const AGENT_FOLDER_NAMES = {
+  Danny:      'danny',
+  Livingston: 'livingston',
+  Reuben:     'reuben',
+  Rusty:      'rusty',
+  Saul:       'saul',
+  Turk:       'turk',
+  Frank:      'frank',
+  Linus:      'linus',
+  Virgil:     'virgil',
+  Basher:     'basher',
+  Yen:        'yen',
+};
+
+// Agent metadata cache - populated from IDENTITY.md files
+let agentMetadataCache = {};
+
+// Parse IDENTITY.md content for Model and Role with flexible patterns
+function parseIdentityMd(content) {
+  const modelPatterns = [
+    /\*\*Model:\*\*\s*(.+)/,
+    /Model:\s*(.+)/i,
+    /^\s*-\s*\*\*Model:\*\*\s*(.+)$/im,
+    /^\s*-\s*Model:\s*(.+)$/im
+  ];
+  
+  const rolePatterns = [
+    /\*\*Role:\*\*\s*(.+)/,
+    /Role:\s*(.+)/i,
+    /^\s*-\s*\*\*Role:\*\*\s*(.+)$/im,
+    /^\s*-\s*Role:\s*(.+)$/im
+  ];
+  
+  let model = null;
+  let role = null;
+  
+  for (const pattern of modelPatterns) {
+    const match = content.match(pattern);
+    if (match) {
+      model = match[1].trim();
+      break;
+    }
+  }
+  
+  for (const pattern of rolePatterns) {
+    const match = content.match(pattern);
+    if (match) {
+      role = match[1].trim();
+      break;
+    }
+  }
+  
+  return { model, role };
+}
+
+// Load all agent metadata from IDENTITY.md files (including Danny from workspace)
+function refreshAgentMetadata() {
+  const metadata = {};
+  
+  // Load Danny from workspace IDENTITY.md
+  try {
+    const dannyIdentityPath = path.join(WORKSPACE_DIR, 'workspace', 'IDENTITY.md');
+    if (fs.existsSync(dannyIdentityPath)) {
+      const content = fs.readFileSync(dannyIdentityPath, 'utf8');
+      const parsed = parseIdentityMd(content);
+      metadata['Danny'] = {
+        model: parsed.model || 'moonshot/kimi-k2.5',
+        role: parsed.role || 'Orchestrator',
+        emoji: 'ðŸ•'
+      };
+    } else {
+      // Fallback for Danny
+      metadata['Danny'] = {
+        model: 'moonshot/kimi-k2.5',
+        role: 'Orchestrator',
+        emoji: 'ðŸ•'
+      };
+    }
+  } catch (err) {
+    console.error('Error reading Danny IDENTITY.md:', err);
+    metadata['Danny'] = {
+      model: 'moonshot/kimi-k2.5',
+      role: 'Orchestrator',
+      emoji: 'ðŸ•'
+    };
+  }
+  
+  // Load all other agents from D:\agents
+  try {
+    const folders = fs.readdirSync(AGENTS_DIR);
+    for (const folder of folders) {
+      const identityPath = path.join(AGENTS_DIR, folder, 'IDENTITY.md');
+      try {
+        const content = fs.readFileSync(identityPath, 'utf8');
+        const parsed = parseIdentityMd(content);
+        
+        // Find display name from folder name
+        const displayName = Object.entries(AGENT_FOLDER_NAMES).find(([_, f]) => f === folder)?.[0];
+        if (displayName && parsed.model) {
+          metadata[displayName] = {
+            model: parsed.model,
+            role: parsed.role || 'Agent',
+            emoji: AGENT_DISPLAY_NAMES[folder.toLowerCase()]?.emoji || 'ðŸ¤–'
+          };
+        }
+      } catch (_) { /* skip unreadable files */ }
+    }
+  } catch (err) {
+    console.error('Error reading agent folders:', err);
+  }
+  
+  agentMetadataCache = metadata;
+  console.log('[Agent Metadata] Refreshed:', Object.keys(metadata).length, 'agents');
+  return metadata;
+}
+
+// Initialize cache on startup
+refreshAgentMetadata();
+
+function getAgentModel(displayName) {
+  // Check cache first
+  if (agentMetadataCache[displayName]?.model) {
+    const fullModel = agentMetadataCache[displayName].model;
+    return fullModel.includes('/') ? fullModel.split('/').slice(1).join('/') : fullModel;
+  }
+  
+  // Fallback to file reading
+  const folder = AGENT_FOLDER_NAMES[displayName];
+  if (!folder) return DEFAULT_MODEL;
+  const identityPath = path.join(AGENTS_DIR, folder, 'IDENTITY.md');
+  try {
+    const content = fs.readFileSync(identityPath, 'utf8');
+    const parsed = parseIdentityMd(content);
+    if (parsed.model) {
+      return parsed.model.includes('/') ? parsed.model.split('/').slice(1).join('/') : parsed.model;
+    }
+  } catch (_) { /* file missing or unreadable */ }
+  return DEFAULT_MODEL;
+}
+
+// Returns the full provider-prefixed model string (e.g. "anthropic/claude-sonnet-4-6")
+// Used for cost() display - ollama/ models are free, cloud models show $0.00.
+function getAgentPrimaryModel(displayName) {
+  // Check cache first
+  if (agentMetadataCache[displayName]?.model) {
+    return agentMetadataCache[displayName].model;
+  }
+  
+  // Special case for Danny
+  if (displayName === 'Danny') {
+    return agentMetadataCache['Danny']?.model || 'moonshot/kimi-k2.5';
+  }
+  
+  const folder = AGENT_FOLDER_NAMES[displayName];
+  if (!folder) return null;
+  const identityPath = path.join(AGENTS_DIR, folder, 'IDENTITY.md');
+  try {
+    const content = fs.readFileSync(identityPath, 'utf8');
+    const parsed = parseIdentityMd(content);
+    if (parsed.model) return parsed.model;
+  } catch (_) { /* file missing or unreadable */ }
+  return null; // unknown â†’ treat as paid (no "free" badge)
+}
+
+function getAgentRole(displayName) {
+  return agentMetadataCache[displayName]?.role || 'Agent';
+}
+
+function getAgentEmoji(displayName) {
+  const emojis = {
+    Danny: 'ðŸ•', Livingston: 'ðŸ’»', Reuben: 'ðŸ“ˆ', Rusty: 'ðŸ”',
+    Saul: 'ðŸ—‚ï¸', Turk: 'ðŸ’ª', Frank: 'ðŸ“£', Linus: 'ðŸŽ¬',
+    Virgil: 'ðŸ”®', Basher: 'ðŸ’¥', Yen: 'ðŸ’´'
+  };
+  return emojis[displayName] || agentMetadataCache[displayName]?.emoji || 'ðŸ¤–';
+}
+
 function normalizeModel(model) {
   if (!model) return 'unknown';
   if (model.includes('/')) return model;
@@ -43,6 +241,7 @@ function normalizeModel(model) {
   if (model.includes('grok'))    return `xai/${model}`;
   if (model.includes('gpt'))     return `openai/${model}`;
   if (model.includes('gemini'))  return `google/${model}`;
+  // Ollama models typically use name:tag format (e.g. qwen2.5:7b, llama3:8b)
   if (model.includes(':'))       return `ollama/${model}`;
   return model;
 }
