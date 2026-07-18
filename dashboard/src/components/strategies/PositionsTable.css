@@ -102,6 +102,26 @@
   border: 1px solid var(--color-negative);
 }
 
+.pos-wallet {
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+.pos-wallet.swing {
+  background: var(--color-blue-bg);
+  color: var(--color-blue);
+  border: 1px solid var(--color-blue);
+}
+
+.pos-wallet.scalp {
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
 .pos-pnl.positive {
   color: var(--color-positive);
 }

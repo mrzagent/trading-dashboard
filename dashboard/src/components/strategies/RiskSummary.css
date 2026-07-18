@@ -251,12 +251,22 @@
   font-size: 0.85rem;
   color: var(--color-text-muted);
   margin-right: 10px;
+  min-width: 50px;
 }
 
 .wallet-addr {
   font-size: 0.85rem;
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
+  flex: 1;
+}
+
+.wallet-balance {
+  font-size: 0.85rem;
+  color: var(--color-accent);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  margin-left: var(--spacing-md);
 }
 
 /* Settings */

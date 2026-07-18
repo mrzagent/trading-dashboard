@@ -23,6 +23,7 @@ export default function PositionsTable({ positions }) {
           <tr>
             <th>Coin</th>
             <th>Side</th>
+            <th>Wallet</th>
             <th>Strategy</th>
             <th>Size</th>
             <th>Leverage</th>
@@ -54,6 +55,11 @@ export default function PositionsTable({ positions }) {
               <td>
                 <span className="pos-side" data-side={pos.side?.toLowerCase()}>
                   {pos.side}
+                </span>
+              </td>
+              <td>
+                <span className={`pos-wallet ${pos.walletType?.toLowerCase()}`}>
+                  {pos.walletType ? pos.walletType.toUpperCase() : "—"}
                 </span>
               </td>
               <td className="pos-strategy">

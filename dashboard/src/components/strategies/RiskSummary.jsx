@@ -86,6 +86,11 @@ export default function RiskSummary({ account, onUpdateSettings }) {
   const pnl30d = account?.pnl30d ?? null;
   const mainWallet = account?.mainWallet || "";
   const agentWallet = account?.agentWallet || "";
+  
+  // Wallet separation - per-wallet balances
+  const wallets = account?.wallets || {};
+  const swingWallet = wallets?.swing || {};
+  const scalpWallet = wallets?.scalp || {};
 
   const accountTradingEnabled = account?.tradingEnabled ?? DEFAULT_TRADING_ENABLED;
   const accountLeverage = account?.leverage ?? DEFAULT_LEVERAGE;
@@ -146,12 +151,12 @@ export default function RiskSummary({ account, onUpdateSettings }) {
             </span>
           </div>
         </div>
-        {/* Wallet Addresses */}
+        {/* Wallet Addresses with Balance Display */}
         <div className="wallets">
           {editingWallets ? (
             <>
               <div className="wallet-row editable">
-                <span className="wallet-label">Main</span>
+                <span className="wallet-label">Swing</span>
                 <input
                   type="text"
                   className="wallet-input"
@@ -161,7 +166,7 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                 />
               </div>
               <div className="wallet-row editable">
-                <span className="wallet-label">Agent</span>
+                <span className="wallet-label">Scalp</span>
                 <input
                   type="text"
                   className="wallet-input"
@@ -179,16 +184,24 @@ export default function RiskSummary({ account, onUpdateSettings }) {
             </>
           ) : (
             <>
+              {/* Swing Wallet */}
               <div className="wallet-row">
-                <span className="wallet-label">Main</span>
-                <span className="wallet-addr" title={mainWallet}>
-                  {formatAddress(mainWallet)}
+                <span className="wallet-label">Swing</span>
+                <span className="wallet-addr" title={swingWallet.walletAddress || mainWallet}>
+                  {formatAddress(swingWallet.walletAddress || mainWallet)}
+                </span>
+                <span className="wallet-balance">
+                  ${(swingWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
+              {/* Scalp Wallet */}
               <div className="wallet-row">
-                <span className="wallet-label">Agent</span>
-                <span className="wallet-addr" title={agentWallet}>
-                  {formatAddress(agentWallet)}
+                <span className="wallet-label">Scalp</span>
+                <span className="wallet-addr" title={scalpWallet.walletAddress || agentWallet}>
+                  {formatAddress(scalpWallet.walletAddress || agentWallet)}
+                </span>
+                <span className="wallet-balance">
+                  ${(scalpWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
               <button
