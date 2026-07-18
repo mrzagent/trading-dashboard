@@ -110,29 +110,6 @@ function formatTimeAgo(minutes) {
   return `${hours}h ${mins}m ago`;
 }
 
-// Voice endpoints
-const TTS_FILE = 'C:\\Users\\mrztms\\.openclaw\\workspace\\tts_output\\latest.wav';
-
-app.get('/api/voice/latest', (req, res) => {
-  try {
-    const stat = fs.statSync(TTS_FILE);
-    res.json({ exists: true, mtime: stat.mtime.toISOString() });
-  } catch {
-    res.json({ exists: false });
-  }
-});
-
-app.get('/api/voice/file', (req, res) => {
-  if (!fs.existsSync(TTS_FILE)) {
-    return res.status(404).json({ error: 'No audio file found' });
-  }
-  const stat = fs.statSync(TTS_FILE);
-  res.setHeader('Content-Type', 'audio/wav');
-  res.setHeader('Content-Length', stat.size);
-  res.setHeader('Cache-Control', 'no-store');
-  fs.createReadStream(TTS_FILE).pipe(res);
-});
-
 // Trading prices endpoints
 app.get('/api/trading', async (req, res) => {
   try {
