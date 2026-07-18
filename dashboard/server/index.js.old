@@ -1,0 +1,1840 @@
+﻿const express = require('express');
+const cors = require('cors');
+const fs = require('fs');
+const fsp = fs.promises;
+const path = require('path');
+const readline = require('readline');
+const { Pool } = require('pg');
+const { spawn } = require('child_process');
+
+const app = express();
+const PORT = 3001;
+
+// â”€â”€ Path Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Dashboard is now part of trading-dashboard project
+// Structure: trading-dashboard/
+//              â”œâ”€â”€ dashboard/ (this server)
+//              â””â”€â”€ (trading scripts at root level)
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+const PYTHON_PATH = 'C:\\Users\\mrztms\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe';
+
+app.use(cors());
+app.use(express.json());
+
+// Prices per 1M tokens (input, output) - update as needed
+const MODEL_PRICES = {
+  'anthropic/claude-sonnet-4-6':        { in: 3.00,  out: 15.00 },
+  'xai/grok-4-1-fast-reasoning':        { in: 0.20,  out: 0.50  },
+  'xai/grok-4-1-fast-non-reasoning':    { in: 0.20,  out: 0.50  },
+  'xai/grok-code-fast-1':               { in: 0.20,  out: 1.50  },
+};
+
+function calcCost(model, tokensIn, tokensOut) {
+  const p = MODEL_PRICES[model];
+  if (!p) return 0;
+  return (tokensIn / 1_000_000) * p.in + (tokensOut / 1_000_000) * p.out;
+}
+
+// â”€â”€ Model Utilities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function normalizeModel(model) {
+  if (!model) return 'unknown';
+  if (model.includes('/')) return model;
+  if (model.includes('claude'))  return `anthropic/${model}`;
+  if (model.includes('grok'))    return `xai/${model}`;
+  if (model.includes('gpt'))     return `openai/${model}`;
+  if (model.includes('gemini'))  return `google/${model}`;
+  if (model.includes(':'))       return `ollama/${model}`;
+  return model;
+}
+
+// Returns all unique models assigned to agents via IDENTITY.md files.
+// This pre-seeds the Models table so every known model appears even if it
+// has no usage in the current period - no hardcoding required.
+function getKnownModels() {
+  const models = new Set();
+  // Danny (main) always uses the default cloud model
+  models.add('anthropic/claude-sonnet-4-6');
+  let agentFolders;
+  try { agentFolders = fs.readdirSync(AGENTS_DIR); } catch (_) { return [...models]; }
+  for (const folder of agentFolders) {
+    const identityPath = path.join(AGENTS_DIR, folder, 'IDENTITY.md');
+    try {
+      const content = fs.readFileSync(identityPath, 'utf8');
+      const match = content.match(/\*\*Model:\*\*\s*(.+)/);
+      if (match) {
+        const m = match[1].trim();
+        if (m) models.add(m);
+      }
+    } catch (_) { /* skip */ }
+  }
+  return [...models];
+}
+
+function readUsageFromSessions(period) {
+  const now = Date.now();
+  let cutoff = 0;
+  if (period === '7d')  cutoff = now - 7  * 24 * 60 * 60 * 1000;
+  else if (period === '24h') cutoff = now - 24 * 60 * 60 * 1000;
+
+  const rows = [];
+  let agents;
+  try { agents = fs.readdirSync(OPENCLAW_AGENTS_DIR); }
+  catch (e) { console.error('Cannot read agents dir:', e.message); return rows; }
+
+  for (const agentDir of agents) {
+    const sessionsDir = path.join(OPENCLAW_AGENTS_DIR, agentDir, 'sessions');
+    if (!fs.existsSync(sessionsDir)) continue;
+
+    let files;
+    try { files = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.jsonl') || (cutoff === 0 && (f.includes('.jsonl.deleted.') || f.includes('.jsonl.reset.')))); }
+    catch (e) { continue; }
+
+    for (const file of files) {
+      const filePath = path.join(sessionsDir, file);
+      try {
+        // Skip files whose mtime is entirely before the cutoff (fast path)
+        if (cutoff > 0) {
+          const mtime = fs.statSync(filePath).mtimeMs;
+          if (mtime < cutoff) continue;
+        }
+        const content = fs.readFileSync(filePath, 'utf8');
+        for (const line of content.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const entry = JSON.parse(line);
+            if (entry.message?.role !== 'assistant') continue;
+            const ts = new Date(entry.timestamp).getTime();
+            if (cutoff > 0 && ts < cutoff) continue;
+
+            const usage      = entry.message?.usage;
+            const cacheRead  = usage?.cacheRead  || 0;
+            const cacheWrite = usage?.cacheWrite || 0;
+            rows.push({
+              agent:     AGENT_DISPLAY_NAMES[agentDir] || agentDir,
+              model:     normalizeModel(entry.message.model),
+              tokensIn:  (usage?.input || 0) + cacheRead + cacheWrite,
+              tokensOut: usage?.output || 0,
+              cost:      usage?.cost?.total || 0,
+            });
+          } catch (_) { /* skip malformed lines */ }
+        }
+      } catch (e) { /* skip unreadable file */ }
+    }
+  }
+  return rows;
+}
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const pool = new Pool({
+  host: 'localhost',
+  port: 5432,
+  user: 'postgres',
+  password: '1870506303979',
+  database: 'agentdb',
+});
+
+// Second pool for trading_prices (stored in the default 'postgres' DB)
+const tradingPool = new Pool({
+  host: 'localhost',
+  port: 5432,
+  user: 'postgres',
+  password: '1870506303979',
+  database: 'postgres',
+});
+
+app.get('/api/agents', async (req, res) => {
+  try {
+    // Query the database for agent status (including model column)
+    const result = await pool.query(
+      'SELECT agent_name, emoji, role, model, current_task, task_milestone, last_completed_task, last_active FROM agent_status ORDER BY agent_name ASC'
+    );
+    
+    // Create a map of existing DB entries
+    const dbAgents = new Map(result.rows.map(r => [r.agent_name, r]));
+    
+    // Build complete agent list including all known agents
+    const ALL_AGENTS = ['Danny','Livingston','Reuben','Rusty','Saul','Turk','Frank','Linus','Virgil','Basher','Yen'];
+    
+    const rows = ALL_AGENTS.map(name => {
+      const dbRow = dbAgents.get(name);
+      // Database is source of truth for model, role; IDENTITY.md as fallback for role
+      const identityRole = getAgentRole(name);
+      const dbModel = dbRow?.model;
+      const identityModel = getAgentPrimaryModel(name);
+      
+      // Clear tasks if last_active is more than 24 hours ago
+      const lastActive = dbRow?.last_active ? new Date(dbRow.last_active) : null;
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const isStale = lastActive && lastActive < twentyFourHoursAgo;
+      
+      return {
+        agent_name: name,
+        emoji: getAgentEmoji(name) || dbRow?.emoji,
+        role: dbRow?.role || (identityRole !== 'Agent' ? identityRole : 'Agent'),
+        current_task: isStale ? null : (dbRow?.current_task || null),
+        task_milestone: isStale ? null : (dbRow?.task_milestone || null),
+        last_completed_task: isStale ? null : (dbRow?.last_completed_task || null),
+        last_active: dbRow?.last_active || null,
+        model: dbModel || identityModel || 'unknown'
+      };
+    });
+    
+    res.json(rows);
+  } catch (err) {
+    console.error('DB error:', err);
+    res.status(500).json({ error: 'Database error', details: err.message });
+  }
+});
+
+// GET /api/agents/health - Returns agents that haven't reported in >30 minutes
+app.get('/api/agents/health', async (req, res) => {
+  try {
+    const staleMinutes = parseInt(req.query.staleMinutes) || 30;
+    
+    const result = await pool.query(
+      `SELECT agent_name, last_active, current_task 
+       FROM agent_status 
+       WHERE last_active < NOW() - INTERVAL '${staleMinutes} minutes'
+          OR last_active IS NULL
+       ORDER BY last_active ASC NULLS FIRST`
+    );
+    
+    res.json({
+      staleThresholdMinutes: staleMinutes,
+      staleAgents: result.rows,
+      count: result.rows.length,
+      checkedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Health check error:', err);
+    res.status(500).json({ error: 'Database error', details: err.message });
+  }
+});
+
+// POST /api/agents/refresh - Re-read all IDENTITY.md files and update agent metadata
+app.post('/api/agents/refresh', async (req, res) => {
+  try {
+    const metadata = refreshAgentMetadata();
+    
+    // Also sync to database (including model)
+    for (const [name, data] of Object.entries(metadata)) {
+      await pool.query(
+        `INSERT INTO agent_status (agent_name, emoji, role, model, last_active)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (agent_name) 
+         DO UPDATE SET emoji = EXCLUDED.emoji, role = EXCLUDED.role, model = EXCLUDED.model`,
+        [name, getAgentEmoji(name), data.role, data.model || 'unknown']
+      );
+    }
+    
+    res.json({ 
+      success: true, 
+      message: `Refreshed metadata for ${Object.keys(metadata).length} agents`,
+      agents: Object.keys(metadata)
+    });
+  } catch (err) {
+    console.error('Refresh error:', err);
+    res.status(500).json({ error: 'Failed to refresh agent metadata', details: err.message });
+  }
+});
+
+async function readUsageFromDB(period) {
+  let timeFilter = '';
+  if (period === '24h') timeFilter = "WHERE occurred_at > NOW() - INTERVAL '24 hours'";
+  else if (period === '7d') timeFilter = "WHERE occurred_at > NOW() - INTERVAL '7 days'";
+
+  try {
+    const result = await pool.query(
+      `SELECT agent, model,
+              SUM(tokens_in)::int as tokens_in,
+              SUM(tokens_out)::int as tokens_out,
+              COUNT(*)::int as calls,
+              ROUND(SUM(cost_usd)::numeric, 6)::float as cost_usd
+       FROM usage_events
+       ${timeFilter}
+       GROUP BY agent, model
+       ORDER BY SUM(tokens_in) DESC`
+    );
+    return result.rows;
+  } catch (e) {
+    console.error('usage_events query error:', e.message);
+    return [];
+  }
+}
+
+app.get('/api/usage', async (req, res) => {
+  try {
+    const period = req.query.period || '24h';
+    let timeFilter = '';
+    if (period === '24h') timeFilter = "WHERE occurred_at > NOW() - INTERVAL '24 hours'";
+    else if (period === '7d') timeFilter = "WHERE occurred_at > NOW() - INTERVAL '7 days'";
+
+    // All usage from usage_events â€” single source of truth
+    // model_usage time filter uses logged_at column
+    let muTimeFilter = '';
+    if (period === '24h') muTimeFilter = "WHERE logged_at > NOW() - INTERVAL '24 hours' AND model NOT LIKE 'anthropic/%'";
+    else if (period === '7d') muTimeFilter = "WHERE logged_at > NOW() - INTERVAL '7 days' AND model NOT LIKE 'anthropic/%'";
+    else muTimeFilter = "WHERE model NOT LIKE 'anthropic/%'";
+
+    const [byAgentModelRes, byAgentRes, byModelRes, totalsRes, muRes] = await Promise.all([
+      pool.query(
+        `SELECT agent, model,
+                COUNT(*)::int as calls,
+                SUM(tokens_in)::int as tokens_in,
+                SUM(tokens_out)::int as tokens_out,
+                ROUND(SUM(cost_usd)::numeric, 6)::float as cost
+         FROM usage_events ${timeFilter}
+         GROUP BY agent, model
+         ORDER BY SUM(tokens_in) DESC`
+      ),
+      pool.query(
+        `SELECT agent,
+                COUNT(*)::int as calls,
+                SUM(tokens_in)::int as tokens_in,
+                SUM(tokens_out)::int as tokens_out,
+                ROUND(SUM(cost_usd)::numeric, 6)::float as cost
+         FROM usage_events ${timeFilter}
+         GROUP BY agent
+         ORDER BY SUM(tokens_in) DESC`
+      ),
+      pool.query(
+        `SELECT model,
+                COUNT(*)::int as calls,
+                SUM(tokens_in)::int as tokens_in,
+                SUM(tokens_out)::int as tokens_out,
+                ROUND(SUM(cost_usd)::numeric, 6)::float as cost
+         FROM usage_events ${timeFilter}
+         GROUP BY model
+         ORDER BY SUM(tokens_in) DESC`
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(tokens_in),0)::int   as total_tokens_in,
+                COALESCE(SUM(tokens_out),0)::int  as total_tokens_out,
+                ROUND(COALESCE(SUM(cost_usd),0)::numeric, 4)::float as total_cost
+         FROM usage_events ${timeFilter}`
+      ),
+      // Supplementary: non-Anthropic sub-agent usage from model_usage (log_usage.py calls)
+      pool.query(
+        `SELECT agent, model,
+                COUNT(*)::int as calls,
+                SUM(tokens_in)::int as tokens_in,
+                SUM(tokens_out)::int as tokens_out
+         FROM model_usage ${muTimeFilter}
+         GROUP BY agent, model`
+      ),
+    ]);
+
+    // Start with usage_events data
+    // Normalize model name: strip provider prefix (e.g. "anthropic/", "xai/", "google/", "ollama/")
+    const normModel = m => (m || '').replace(/^[a-z]+\//, '');
+
+    const byAgentMap  = {};
+    for (const r of byAgentModelRes.rows) {
+      const model = normModel(r.model);
+      const key = `${r.agent}__${model}`;
+      if (!byAgentMap[key]) byAgentMap[key] = { agent: r.agent, model, calls: 0, tokens_in: 0, tokens_out: 0, cost: 0 };
+      byAgentMap[key].calls      += r.calls;
+      byAgentMap[key].tokens_in  += r.tokens_in  || 0;
+      byAgentMap[key].tokens_out += r.tokens_out || 0;
+      byAgentMap[key].cost       += r.cost       || 0;
+    }
+    const byModelMap = {};
+    for (const r of byModelRes.rows) {
+      const model = normModel(r.model);
+      if (!byModelMap[model]) byModelMap[model] = { model, calls: 0, tokens_in: 0, tokens_out: 0, cost: 0 };
+      byModelMap[model].calls      += r.calls;
+      byModelMap[model].tokens_in  += r.tokens_in  || 0;
+      byModelMap[model].tokens_out += r.tokens_out || 0;
+      byModelMap[model].cost       += r.cost       || 0;
+    }
+    const totals = totalsRes.rows[0];
+    let extraCost = 0;
+
+    // Merge non-Anthropic sub-agent data from model_usage
+    for (const r of muRes.rows) {
+      const tin   = r.tokens_in  || 0;
+      const tout  = r.tokens_out || 0;
+      const cost  = calcCost(r.model, tin, tout);
+      const model = normModel(r.model);
+      extraCost  += cost;
+
+      // byAgent (agent+model breakdown)
+      const key = `${r.agent}__${model}`;
+      if (!byAgentMap[key]) byAgentMap[key] = { agent: r.agent, model, calls: 0, tokens_in: 0, tokens_out: 0, cost: 0 };
+      byAgentMap[key].calls      += r.calls;
+      byAgentMap[key].tokens_in  += tin;
+      byAgentMap[key].tokens_out += tout;
+      byAgentMap[key].cost       += cost;
+
+      // byModel
+      if (!byModelMap[model]) byModelMap[model] = { model, calls: 0, tokens_in: 0, tokens_out: 0, cost: 0 };
+      byModelMap[model].calls      += r.calls;
+      byModelMap[model].tokens_in  += tin;
+      byModelMap[model].tokens_out += tout;
+      byModelMap[model].cost       += cost;
+    }
+
+    const byAgent = Object.values(byAgentMap).sort((a, b) => b.tokens_in - a.tokens_in);
+    const byModel = Object.values(byModelMap).sort((a, b) => b.tokens_in - a.tokens_in);
+
+    // Build byAgentOnly with all known agents pre-seeded
+    const ALL_AGENTS = ['Danny','Livingston','Rusty','Reuben','Saul','Turk','Frank','Linus','Virgil','Basher','Yen'];
+    const byAgentOnlyMap = {};
+    for (const name of ALL_AGENTS) {
+      byAgentOnlyMap[name] = { agent: name, calls: 0, tokens_in: 0, tokens_out: 0, cost: 0, primaryModel: getAgentPrimaryModel(name) };
+    }
+    for (const r of byAgentRes.rows) {
+      if (!byAgentOnlyMap[r.agent]) byAgentOnlyMap[r.agent] = { agent: r.agent, calls: 0, tokens_in: 0, tokens_out: 0, cost: 0 };
+      byAgentOnlyMap[r.agent].calls      += r.calls;
+      byAgentOnlyMap[r.agent].tokens_in  += r.tokens_in  || 0;
+      byAgentOnlyMap[r.agent].tokens_out += r.tokens_out || 0;
+      byAgentOnlyMap[r.agent].cost       += r.cost       || 0;
+    }
+    for (const r of muRes.rows) {
+      const tin  = r.tokens_in  || 0;
+      const tout = r.tokens_out || 0;
+      const cost = calcCost(r.model, tin, tout);
+      if (!byAgentOnlyMap[r.agent]) byAgentOnlyMap[r.agent] = { agent: r.agent, calls: 0, tokens_in: 0, tokens_out: 0, cost: 0 };
+      byAgentOnlyMap[r.agent].calls      += r.calls;
+      byAgentOnlyMap[r.agent].tokens_in  += tin;
+      byAgentOnlyMap[r.agent].tokens_out += tout;
+      byAgentOnlyMap[r.agent].cost       += cost;
+    }
+    const byAgentOnly = Object.values(byAgentOnlyMap).sort((a, b) => b.calls - a.calls);
+
+    res.json({
+      byAgent,
+      byAgentOnly,
+      byModel,
+      total_tokens_today: (totals.total_tokens_in || 0) + (totals.total_tokens_out || 0),
+      total_cost_today:   (totals.total_cost || 0) + extraCost,
+    });
+  } catch (err) {
+    console.error('Usage error:', err);
+    res.status(500).json({ error: 'Failed to read usage data', details: err.message });
+  }
+});
+
+// â”€â”€ Voice endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const TTS_FILE = 'C:\\Users\\mrztms\\.openclaw\\workspace\\tts_output\\latest.wav';
+
+app.get('/api/voice/latest', (req, res) => {
+  try {
+    const stat = fs.statSync(TTS_FILE);
+    res.json({ exists: true, mtime: stat.mtime.toISOString() });
+  } catch {
+    res.json({ exists: false });
+  }
+});
+
+app.get('/api/voice/file', (req, res) => {
+  if (!fs.existsSync(TTS_FILE)) {
+    return res.status(404).json({ error: 'No audio file found' });
+  }
+  const stat = fs.statSync(TTS_FILE);
+  res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Cache-Control', 'no-store');
+  fs.createReadStream(TTS_FILE).pipe(res);
+});
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+// â”€â”€ Trading prices endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+app.get('/api/trading', async (req, res) => {
+  try {
+    const latestResult = await tradingPool.query(
+      `WITH latest AS (
+        SELECT DISTINCT ON (coin) * FROM trading_prices ORDER BY coin, captured_at DESC
+      ),
+      hist_5m AS (
+        SELECT DISTINCT ON (coin) coin, price AS price_5m FROM trading_prices
+        WHERE captured_at BETWEEN NOW() - INTERVAL '8 minutes' AND NOW() - INTERVAL '2 minutes'
+        ORDER BY coin, ABS(EXTRACT(EPOCH FROM (captured_at - (NOW() - INTERVAL '5 minutes'))))
+      ),
+      hist_1h AS (
+        SELECT DISTINCT ON (coin) coin, price AS price_1h FROM trading_prices
+        WHERE captured_at BETWEEN NOW() - INTERVAL '70 minutes' AND NOW() - INTERVAL '50 minutes'
+        ORDER BY coin, ABS(EXTRACT(EPOCH FROM (captured_at - (NOW() - INTERVAL '60 minutes'))))
+      ),
+      hist_4h AS (
+        SELECT DISTINCT ON (coin) coin, price AS price_4h FROM trading_prices
+        WHERE captured_at BETWEEN NOW() - INTERVAL '250 minutes' AND NOW() - INTERVAL '230 minutes'
+        ORDER BY coin, ABS(EXTRACT(EPOCH FROM (captured_at - (NOW() - INTERVAL '240 minutes'))))
+      )
+      SELECT
+        l.*,
+        CASE WHEN h5.price_5m IS NOT NULL
+          THEN ROUND(((l.price - h5.price_5m) / h5.price_5m * 100)::numeric, 2)
+          ELSE NULL END AS change_5min,
+        CASE WHEN h1.price_1h IS NOT NULL
+          THEN ROUND(((l.price - h1.price_1h) / h1.price_1h * 100)::numeric, 2)
+          ELSE NULL END AS change_1h,
+        CASE WHEN h4.price_4h IS NOT NULL
+          THEN ROUND(((l.price - h4.price_4h) / h4.price_4h * 100)::numeric, 2)
+          ELSE NULL END AS change_4h
+      FROM latest l
+      LEFT JOIN hist_5m h5 ON l.coin = h5.coin
+      LEFT JOIN hist_1h h1 ON l.coin = h1.coin
+      LEFT JOIN hist_4h h4 ON l.coin = h4.coin
+      ORDER BY l.coin`
+    );
+    
+    // Add timeframe-accurate RSI (aggregated from 5min data)
+    const coins = latestResult.rows.map(r => r.coin);
+    const rsiData = {};
+    for (const coin of coins) {
+      rsiData[coin] = {
+        rsi_1h: await calcTimeframeRSI(coin, '1h'),
+        rsi_4h: await calcTimeframeRSI(coin, '4h')
+      };
+    }
+    
+    // Merge RSI data into results
+    const enrichedRows = latestResult.rows.map(row => ({
+      ...row,
+      rsi_1h: rsiData[row.coin]?.rsi_1h,
+      rsi_4h: rsiData[row.coin]?.rsi_4h
+    }));
+    
+    const historyResult = await tradingPool.query(
+      `SELECT * FROM trading_prices ORDER BY captured_at DESC LIMIT 5`
+    );
+    res.json({
+      latest: enrichedRows,
+      history: historyResult.rows,
+    });
+  } catch (err) {
+    console.error('Trading DB error:', err);
+    res.status(500).json({ error: 'Database error', details: err.message });
+  }
+});
+
+// GET /api/trading/history?minutes=20  (omit minutes â†’ most recent row per coin)
+app.get('/api/trading/history', async (req, res) => {
+  try {
+    const minutes = req.query.minutes ? parseInt(req.query.minutes, 10) : null;
+    let rows;
+    if (!minutes || isNaN(minutes)) {
+      // "Last" tab - most recent row per coin
+      const result = await tradingPool.query(
+        `SELECT DISTINCT ON (coin) * FROM trading_prices ORDER BY coin, captured_at DESC`
+      );
+      rows = result.rows;
+    } else {
+      // All time tabs use trading_prices (5min data) with window-based lookup
+      // Find the price closest to (NOW - minutes) within a Â±10min window
+      const result = await tradingPool.query(
+        `SELECT DISTINCT ON (coin) *
+         FROM trading_prices
+         WHERE captured_at BETWEEN (NOW() - ($1::int * INTERVAL '1 minute') - INTERVAL '10 minutes')
+                               AND (NOW() - ($1::int * INTERVAL '1 minute') + INTERVAL '10 minutes')
+         ORDER BY coin, ABS(EXTRACT(EPOCH FROM (captured_at - (NOW() - ($1::int * INTERVAL '1 minute')))))`,
+        [minutes]
+      );
+      rows = result.rows;
+    }
+    res.json(rows);
+  } catch (err) {
+    console.error('Trading history DB error:', err);
+    res.status(500).json({ error: 'Database error', details: err.message });
+  }
+});
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+
+// ===== Agent Signals Endpoint =====
+app.get('/api/trading/data', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT ON (source, symbol, timeframe)
+        source, symbol, COALESCE(timeframe, '5min') AS timeframe,
+        signal_type, confidence, notes, created_at
+      FROM reuben_signals
+      ORDER BY source, symbol, timeframe, created_at DESC
+    `);
+    const agentSignals = {};
+    for (const row of result.rows) {
+      if (!agentSignals[row.source]) agentSignals[row.source] = {};
+      const tf = row.timeframe || '5min';
+      if (!agentSignals[row.source][tf]) agentSignals[row.source][tf] = {};
+      agentSignals[row.source][tf][row.symbol] = {
+        signal_type: row.signal_type,
+        confidence: row.confidence,
+        notes: row.notes,
+        created_at: row.created_at,
+      };
+    }
+    res.json({ agentSignals });
+  } catch (err) {
+    console.error('[Trading Data Error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+// ===== End Agent Signals =====
+
+
+// â”€â”€â”€ Data Source Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Data is collected by candle_collector_hl.py from HyperLiquid
+// Dashboard reads from trading_prices, trading_prices_1h, trading_prices_4h
+// To change collection interval, update candle_collector_hl.py and scheduled tasks
+const DATA_SOURCE = { name: 'HyperLiquid', url: 'https://hyperliquid.xyz' };
+const COINS = ['BTC', 'ETH', 'SOL'];
+const COLLECTION_INTERVAL_MINUTES = 5; // Matches candle_collector_hl.py 5min timeframe
+
+// â”€â”€â”€ Technical indicator helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function calcRSI(prices, period = 14) {
+  if (prices.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return parseFloat((100 - 100 / (1 + rs)).toFixed(2));
+}
+
+// Aggregate 5min closes into timeframe candles and calculate RSI
+// timeframes: '1h' (12 candles = 60min/5min), '4h' (48 candles = 240min/5min)
+async function calcTimeframeRSI(coin, timeframe) {
+  // Data is stored every 5 minutes, so calculate records needed per timeframe candle
+  const candlesNeeded = timeframe === '1h' ? 12 : timeframe === '4h' ? 48 : null;
+  if (!candlesNeeded) return null;
+  
+  // For 1h: need 12*15=180 records minimum for full 14-period RSI
+  // For 4h: need 48*15=720 records minimum
+  // If we don't have enough, we calculate with proportional periods
+  const idealTotal = candlesNeeded * 15;
+  
+  try {
+    // LIMIT must be a literal, not a parameter
+    const result = await tradingPool.query(
+      `SELECT price FROM trading_prices 
+       WHERE coin = $1 
+       ORDER BY captured_at DESC 
+       LIMIT ${idealTotal}`,
+      [coin]
+    );
+    
+    if (result.rows.length < candlesNeeded + 1) {
+      // Not enough data even for 2 candles
+      console.log(`[RSI] Not enough data for ${coin} ${timeframe}: ${result.rows.length} rows`);
+      return null;
+    }
+    
+    // Aggregate into timeframe candles (take close of every Nth candle)
+    const closes = [];
+    for (let i = result.rows.length - 1; i >= 0; i -= candlesNeeded) {
+      closes.push(parseFloat(result.rows[i].price));
+    }
+    closes.reverse();
+    
+    // Adjust RSI period based on available data
+    // Minimum 7 periods, maximum 14
+    const availablePeriods = closes.length - 1;
+    const rsiPeriod = Math.min(14, Math.max(7, Math.floor(availablePeriods * 0.9)));
+    
+    if (closes.length < rsiPeriod + 1) {
+      console.log(`[RSI] Not enough candles for ${coin} ${timeframe}: ${closes.length} candles, need ${rsiPeriod + 1}`);
+      return null;
+    }
+    
+    const rsi = calcRSI(closes, rsiPeriod);
+    console.log(`[RSI] ${coin} ${timeframe}: ${rsi} (period=${rsiPeriod}, candles=${closes.length})`);
+    return rsi;
+  } catch (err) {
+    console.error(`Error calculating ${timeframe} RSI for ${coin}:`, err);
+    return null;
+  }
+}
+
+function calcMomentum(prices, period = 10) {
+  if (prices.length < period + 1) return null;
+  const current = prices[prices.length - 1];
+  const prev = prices[prices.length - 1 - period];
+  return parseFloat(((current - prev) / prev * 100).toFixed(4));
+}
+
+function calcFVG(prices, period = 10) {
+  // prices = array of {price, captured_at}
+  const recent = prices.slice(-Math.min(period * 3, prices.length));
+  const fvgs = [];
+  for (let i = 2; i < recent.length; i++) {
+    const prev  = parseFloat(recent[i - 2].price);
+    const curr  = parseFloat(recent[i].price);
+    const mid   = parseFloat(recent[i - 1].price);
+    const gap   = Math.abs(curr - prev);
+    if (gap < prev * 0.0002) continue; // skip tiny gaps
+    const type = curr > prev ? 'bullish' : 'bearish';
+    const top    = Math.max(prev, curr);
+    const bottom = Math.min(prev, curr);
+    fvgs.push({
+      top: parseFloat(top.toFixed(2)),
+      bottom: parseFloat(bottom.toFixed(2)),
+      midpoint: parseFloat(((top + bottom) / 2).toFixed(3)),
+      type,
+      formed_at: recent[i - 1].captured_at
+        ? new Date(recent[i - 1].captured_at).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+        : null
+    });
+  }
+  // Return last `period` FVGs, most recent first
+  const result = fvgs.reverse().slice(0, period);
+  return result.length ? result : null;
+}
+
+// DEPRECATED: Data collection moved to candle_collector_hl.py
+// This function is no longer called — kept for reference only
+/*
+async function fetchAndStorePrices() {
+  try {
+    const ids = Object.values(COIN_IDS).join(',');
+    const url = `https://pro-api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true`;
+    const headers = COINGECKO_API_KEY ? { 'x-cg-pro-api-key': COINGECKO_API_KEY } : {};
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      console.error(`[CoinGecko] HTTP ${res.status}`);
+      return;
+    }
+    const data = await res.json();
+    const now = new Date();
+
+    for (const [symbol, cgId] of Object.entries(COIN_IDS)) {
+      const d = data[cgId];
+      if (!d) continue;
+
+      await tradingPool.query(
+        `INSERT INTO trading_prices (captured_at, coin, price, change_24h, volume_24h, market_cap)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [now, symbol, d.usd, d.usd_24h_change ?? null, d.usd_24h_vol ?? null, d.usd_market_cap ?? null]
+      );
+    }
+    console.log(`[CoinGecko] Prices stored at ${now.toISOString()}`);
+  } catch (err) {
+    console.error('[CoinGecko] Fetch error:', err.message);
+  }
+}
+*/
+
+// ================= ADDITIONAL TRADING ROUTES =================
+
+// GET /api/trading/signals - recent signals from database + position opens
+// Query params:
+//   limit: number of signals per page (default 20, max 100)
+//   page: page number (default 1)
+//   action: filter by action - 'BUY', 'SELL', 'HOLD', or 'ALL' (default 'ALL')
+//   minConfidence: minimum confidence threshold (default 0)
+app.get('/api/trading/signals', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100); // Max 100 per page
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const offset = (page - 1) * limit;
+    const actionFilter = req.query.action || 'ALL';
+    const minConfidence = parseFloat(req.query.minConfidence) || 0;
+    
+    let signals = [];
+    let totalCount = 0;
+    
+    // Build WHERE clause
+    let whereClause = '';
+    const params = [];
+    let paramIndex = 1;
+    
+    if (actionFilter !== 'ALL' && ['BUY', 'SELL', 'HOLD'].includes(actionFilter)) {
+      whereClause = `WHERE action = $${paramIndex}`;
+      params.push(actionFilter);
+      paramIndex++;
+    }
+    
+    if (minConfidence > 0) {
+      whereClause += whereClause ? ` AND confidence >= $${paramIndex}` : `WHERE confidence >= $${paramIndex}`;
+      params.push(minConfidence);
+      paramIndex++;
+    }
+    
+    // First, get total count for pagination
+    try {
+      const countQuery = `SELECT COUNT(*) as total FROM trading_signals ${whereClause}`;
+      const countResult = await tradingPool.query(countQuery, params);
+      totalCount = parseInt(countResult.rows[0].total);
+    } catch (countErr) {
+      console.log('Count query error:', countErr.message);
+    }
+    
+    // Get signals from database with pagination
+    try {
+      const queryParams = [...params, limit, offset];
+      const { rows } = await tradingPool.query(
+        `SELECT 
+          id,
+          coin,
+          action,
+          strategy,
+          confidence,
+          reason as notes,
+          meta,
+          created_at,
+          EXTRACT(EPOCH FROM (NOW() - created_at))/60 as minutes_ago
+        FROM trading_signals 
+        ${whereClause}
+        ORDER BY created_at DESC 
+        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+        queryParams
+      );
+      
+      signals = rows.map(row => {
+        // Parse meta to extract style
+        let style = null;
+        try {
+          const meta = typeof row.meta === 'string' ? JSON.parse(row.meta) : row.meta;
+          style = meta?.strategy_style || null;
+        } catch (_) { /* ignore parse errors */ }
+        
+        return {
+          id: row.id,
+          coin: row.coin?.replace('USD', '') || row.coin,
+          action: ['BUY', 'SELL'].includes(row.action) ? row.action : 'HOLD',
+          strategy: row.strategy || 'Unknown',
+          confidence: parseFloat(row.confidence) || 0,
+          notes: row.notes,
+          style: style,
+          createdAt: row.created_at,
+          timeAgo: formatTimeAgo(row.minutes_ago)
+        };
+      });
+    } catch (dbErr) {
+      console.log('Database signals fetch error:', dbErr.message);
+      console.log('Error details:', dbErr);
+    }
+    
+    // Also get position opens from position_state.json (for trades placed directly)
+    try {
+      const positionPath = path.join('D:', 'dev', 'trading', '.position_state.json');
+      const data = await fsp.readFile(positionPath, 'utf8');
+      const state = JSON.parse(data);
+      
+      if (state.positions) {
+        for (const [symbol, pos] of Object.entries(state.positions)) {
+          const detectedAt = pos.detected_at || pos.openedAt;
+          if (detectedAt) {
+            const coin = pos.coin || symbol.split('_')[0];
+            const side = pos.side || (symbol.includes('_') ? symbol.split('_')[1] : 'LONG');
+            const minutesAgo = (Date.now() - new Date(detectedAt).getTime()) / 60000;
+            
+            signals.push({
+              id: `pos-${symbol}`,
+              coin: coin,
+              action: side.toUpperCase() === 'LONG' ? 'BUY' : 'SELL',
+              strategy: 'Manual/Executor',
+              confidence: 1.0,
+              timeframe: 'N/A',
+              notes: `Position opened at $${pos.entry_px || pos.entryPrice || 0}`,
+              createdAt: detectedAt,
+              timeAgo: formatTimeAgo(minutesAgo)
+            });
+          }
+        }
+      }
+    } catch (fileErr) {
+      // Position file might not exist, that's ok
+    }
+    
+    // Sort by created_at descending
+    signals.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    // Return with pagination metadata
+    const responseData = {
+      signals: signals,
+      pagination: {
+        page: page,
+        limit: limit,
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        hasNext: page * limit < totalCount,
+        hasPrev: page > 1
+      },
+      filters: {
+        action: actionFilter,
+        minConfidence: minConfidence
+      }
+    };
+    return res.json(responseData);
+  } catch (err) {
+    console.error('Signals fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/trading/positions - open positions from Hyperliquid
+app.get('/api/trading/positions', async (req, res) => {
+  const timeoutMs = 30000; // 30 second timeout
+  
+  try {
+    // Call Python script to fetch real positions from Hyperliquid
+    const pythonPath = 'C:\\Users\\mrztms\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe';
+    const scriptPath = path.join(PROJECT_ROOT, 'get_positions_for_dashboard.py');
+    
+    console.log('[Positions] Fetching from Hyperliquid...');
+    console.log('[Positions] Python path:', PYTHON_PATH);
+    console.log('[Positions] Script path:', scriptPath);
+    
+    const pythonProcess = spawn(PYTHON_PATH, [scriptPath], {
+      cwd: PROJECT_ROOT,
+      env: {
+        ...process.env,
+        PYTHONPATH: PROJECT_ROOT
+      }
+    });
+    
+    console.log('[Positions] Spawned process PID:', pythonProcess.pid);
+    
+    let output = '';
+    let errorOutput = '';
+    let responded = false;
+    
+    // Set timeout
+    const timeout = setTimeout(() => {
+      if (!responded) {
+        responded = true;
+        pythonProcess.kill('SIGTERM');
+        console.error('[Positions] Timeout after', timeoutMs, 'ms');
+        res.json([]); // Return empty on timeout
+      }
+    }, timeoutMs);
+    
+    pythonProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    pythonProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.error('[Positions] Python stderr:', data.toString());
+    });
+    
+    pythonProcess.on('close', (code) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(timeout);
+      
+      if (code !== 0) {
+        console.error('[Positions] Python script error, code:', code, 'stderr:', errorOutput);
+        return res.json([]);
+      }
+      
+      try {
+        const positions = JSON.parse(output.trim());
+        console.log('[Positions] Found', positions.length, 'positions');
+        const settings = getAccountSettings();
+        res.json({
+          environment: settings.environment || 'testnet',
+          positions: positions
+        });
+      } catch (parseErr) {
+        console.error('[Positions] JSON parse error:', parseErr.message, 'Output:', output.substring(0, 200));
+        const settings = getAccountSettings();
+        res.json({
+          environment: settings.environment || 'testnet',
+          positions: []
+        });
+      }
+    });
+    
+    pythonProcess.on('error', (err) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(timeout);
+      console.error('[Positions] Spawn error:', err);
+      const settings = getAccountSettings();
+      res.json({
+        environment: settings.environment || 'testnet',
+        positions: []
+      });
+    });
+    
+  } catch (err) {
+    console.error('[Positions] Unexpected error:', err);
+    const settings = getAccountSettings();
+    res.status(500).json({
+      environment: settings.environment || 'testnet',
+      error: err.message,
+      positions: []
+    });
+  }
+});
+
+// POST /api/trading/positions - create a test position
+app.post('/api/trading/positions', async (req, res) => {
+  try {
+    const { coin, side, size, entryPrice, stopLoss, takeProfit } = req.body;
+    const positionPath = path.join('D:', 'dev', 'trading', '.position_state.json');
+    
+    let state = { positions: {} };
+    try {
+      const data = await fsp.readFile(positionPath, 'utf8');
+      state = JSON.parse(data);
+      if (!state.positions) state.positions = {};
+    } catch (e) {
+      // File doesn't exist, start fresh
+    }
+    
+    const symbol = coin + 'USD';
+    const markPrice = entryPrice * (1 + (Math.random() * 0.02 - 0.01)); // +/- 1%
+    const unrealizedPnl = (markPrice - entryPrice) * size * (side === 'LONG' ? 1 : -1);
+    
+    state.positions[symbol] = {
+      side: side.toLowerCase(),
+      size: parseFloat(size),
+      entryPrice: parseFloat(entryPrice),
+      markPrice: markPrice,
+      stopLoss: parseFloat(stopLoss),
+      takeProfit: parseFloat(takeProfit),
+      unrealizedPnl: unrealizedPnl,
+      openedAt: new Date().toISOString()
+    };
+    
+    await fsp.writeFile(positionPath, JSON.stringify(state, null, 2));
+    
+    res.json({ 
+      success: true, 
+      position: {
+        id: symbol,
+        coin: coin,
+        side: side,
+        size: size,
+        entryPrice: entryPrice,
+        markPrice: markPrice,
+        stopLoss: stopLoss,
+        takeProfit: takeProfit,
+        unrealizedPnl: unrealizedPnl
+      }
+    });
+  } catch (err) {
+    console.error('Position create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/trading/risk-config - current risk configuration
+app.get('/api/trading/risk-config', async (req, res) => {
+  try {
+    const configPath = path.join('D:', 'dev', 'trading', 'risk_config.json');
+    let config = {};
+    
+    try {
+      const data = await fsp.readFile(configPath, 'utf8');
+      const raw = JSON.parse(data);
+      
+      config = {
+        initialCapital: raw.initial_capital || 1000,
+        riskPerTradePct: (raw.risk_per_trade_pct || 0.02) * 100,
+        stopLossPct: (raw.stop_loss_pct || 0.05) * 100,
+        takeProfitPct: raw.take_profit_levels?.[0]?.level ? raw.take_profit_levels[0].level * 100 : 10,
+        maxPositionPct: (raw.max_position_pct || 0.5) * 100,
+        maxOpenPositions: raw.max_open_positions || 3,
+        commissionPct: (raw.commission_pct || 0.001) * 100,
+        slippagePct: (raw.slippage_pct || 0.0005) * 100,
+        leverage: raw.leverage || 3,
+        minConfidence: 0.7,
+        cooldownMinutes: 60,
+      };
+    } catch (e) {
+      config = {
+        initialCapital: 1000,
+        riskPerTradePct: 2,
+        stopLossPct: 5,
+        takeProfitPct: 10,
+        maxPositionPct: 50,
+        maxOpenPositions: 3,
+        commissionPct: 0.1,
+        slippagePct: 0.05,
+        leverage: 3,
+        minConfidence: 0.7,
+        cooldownMinutes: 60,
+      };
+    }
+    
+    res.json(config);
+  } catch (err) {
+    console.error('Risk config fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/trading/risk-config - update risk configuration
+app.post('/api/trading/risk-config', async (req, res) => {
+  try {
+    const configPath = path.join('D:', 'dev', 'trading', 'risk_config.json');
+    const body = req.body;
+    
+    const raw = {
+      initial_capital: parseFloat(body.initialCapital) || 1000,
+      risk_per_trade_pct: (parseFloat(body.riskPerTradePct) || 2) / 100,
+      stop_loss_pct: (parseFloat(body.stopLossPct) || 5) / 100,
+      take_profit_levels: [
+        { level: (parseFloat(body.takeProfitPct) || 10) / 100, close_pct: 0.25, label: "TP1" },
+        { level: (parseFloat(body.takeProfitPct) || 10) * 1.5 / 100, close_pct: 0.25, label: "TP2" },
+        { level: (parseFloat(body.takeProfitPct) || 10) * 2 / 100, close_pct: 0.25, label: "TP3" },
+        { level: (parseFloat(body.takeProfitPct) || 10) * 2.5 / 100, close_pct: 0.25, label: "TP4" },
+      ],
+      max_position_pct: (parseFloat(body.maxPositionPct) || 50) / 100,
+      max_open_positions: parseInt(body.maxOpenPositions) || 3,
+      commission_pct: (parseFloat(body.commissionPct) || 0.1) / 100,
+      slippage_pct: (parseFloat(body.slippagePct) || 0.05) / 100,
+      leverage: parseFloat(body.leverage) || 3,
+    };
+    
+    await fsp.writeFile(configPath, JSON.stringify(raw, null, 2));
+    res.json({ success: true, config: body });
+  } catch (err) {
+    console.error('Risk config update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/trading/strategies - get all strategy states
+app.get('/api/trading/strategies', async (req, res) => {
+  try {
+    const strategyPath = path.join('D:', 'dev', 'trading', '.strategy_state.json');
+    // All 10 strategies with defaults (all enabled by default)
+    let strategies = {
+      fvg_proximity: true,
+      momentum_rsi: true,
+      rsi_mean_reversion: true,
+      volume_spike: true,
+      trend_breakout: true,
+      mean_reversion: true,
+      momentum_accel: true,
+      vwap_reversion: true,
+      momentum_scalper: true,
+      pullback_scalper: true
+    };
+    
+    try {
+      const data = await fsp.readFile(strategyPath, 'utf8');
+      strategies = { ...strategies, ...JSON.parse(data) };
+    } catch (e) {
+      // File doesn't exist, return defaults
+    }
+    
+    res.json(strategies);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/trading/strategies/:id - toggle strategy
+app.post('/api/trading/strategies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+    const strategyPath = path.join('D:', 'dev', 'trading', '.strategy_state.json');
+    
+    let strategies = {};
+    try {
+      const data = await fsp.readFile(strategyPath, 'utf8');
+      strategies = JSON.parse(data);
+    } catch (e) {
+      // File doesn't exist
+    }
+    
+    strategies[id] = active;
+    await fsp.writeFile(strategyPath, JSON.stringify(strategies, null, 2));
+    
+    res.json({ success: true, id, active });
+  } catch (err) {
+    console.error('Strategy toggle error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/trading/executions - get trade execution pipeline status
+app.get('/api/trading/executions', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const coin = req.query.coin || null;
+    
+    let query = `
+      SELECT 
+        te.id,
+        te.signal_id,
+        te.coin,
+        te.strategy,
+        te.action,
+        te.confidence,
+        te.signal_generated,
+        te.signal_generated_at,
+        te.orchestrator_processed,
+        te.orchestrator_processed_at,
+        te.orchestrator_skip_reason,
+        te.hyperliquid_sent,
+        te.hyperliquid_sent_at,
+        te.hyperliquid_response,
+        te.hyperliquid_error,
+        te.hyperliquid_order_id,
+        te.status,
+        te.created_at,
+        ts.meta as signal_meta
+      FROM trade_executions te
+      LEFT JOIN trading_signals ts ON te.signal_id = ts.id
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramIndex = 1;
+    
+    if (coin) {
+      query += ` AND te.coin = $${paramIndex}`;
+      params.push(coin);
+      paramIndex++;
+    }
+    
+    query += ` ORDER BY te.created_at DESC LIMIT $${paramIndex}`;
+    params.push(limit);
+    
+    const result = await tradingPool.query(query, params);
+    
+    // Format executions for frontend
+    const executions = result.rows.map(row => {
+      // Parse signal meta for additional info
+      let style = null;
+      try {
+        const meta = typeof row.signal_meta === 'string' ? JSON.parse(row.signal_meta) : row.signal_meta;
+        style = meta?.strategy_style || null;
+      } catch (_) {}
+      
+      // Calculate pipeline stages
+      const stages = {
+        signal: {
+          status: row.signal_generated ? 'success' : 'pending',
+          timestamp: row.signal_generated_at
+        },
+        orchestrator: {
+          status: row.orchestrator_processed 
+            ? 'success' 
+            : (row.orchestrator_skip_reason ? 'skipped' : 'pending'),
+          timestamp: row.orchestrator_processed_at,
+          reason: row.orchestrator_skip_reason
+        },
+        hyperliquid: {
+          status: row.hyperliquid_response === 'success' 
+            ? 'success' 
+            : (row.hyperliquid_response === 'failed' ? 'failed' : (row.hyperliquid_sent ? 'pending' : 'pending')),
+          timestamp: row.hyperliquid_sent_at,
+          error: row.hyperliquid_error,
+          orderId: row.hyperliquid_order_id
+        }
+      };
+      
+      // Calculate time ago
+      const minutesAgo = row.created_at 
+        ? (Date.now() - new Date(row.created_at).getTime()) / 60000 
+        : null;
+      
+      return {
+        id: row.id,
+        signalId: row.signal_id,
+        coin: row.coin,
+        strategy: row.strategy,
+        action: row.action,
+        confidence: parseFloat(row.confidence) || 0,
+        style: style,
+        stages: stages,
+        overallStatus: row.status,
+        createdAt: row.created_at,
+        timeAgo: formatTimeAgo(minutesAgo)
+      };
+    });
+    
+    res.json({
+      executions: executions,
+      count: executions.length
+    });
+  } catch (err) {
+    console.error('Executions fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper: format time ago
+function formatTimeAgo(minutes) {
+  if (!minutes || minutes < 1) return 'just now';
+  if (minutes < 60) return `${Math.floor(minutes)}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+// GET /api/trading/wallet - get connected wallet address
+app.get('/api/trading/wallet', async (req, res) => {
+  try {
+    // Try to read wallet from trading bot config or env
+    let address = '';
+    
+    // Check environment variables first
+    if (process.env.HYPERLIQUID_WALLET) {
+      address = process.env.HYPERLIQUID_WALLET;
+    } else if (process.env.WALLET_ADDRESS) {
+      address = process.env.WALLET_ADDRESS;
+    } else {
+      // Try to read from a wallet config file
+      try {
+        const walletPath = path.join('D:', 'dev', 'trading', '.wallet.json');
+        const data = await fsp.readFile(walletPath, 'utf8');
+        const wallet = JSON.parse(data);
+        address = wallet.address || '';
+      } catch (e) {
+        // No wallet file, return empty
+      }
+    }
+    
+    res.json({ address, connected: !!address });
+  } catch (err) {
+    console.error('Wallet fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/trading/wallet - set wallet address
+app.post('/api/trading/wallet', async (req, res) => {
+  try {
+    const { address } = req.body;
+    const walletPath = path.join('D:', 'dev', 'trading', '.wallet.json');
+    
+    await fsp.writeFile(walletPath, JSON.stringify({ address, updatedAt: new Date().toISOString() }, null, 2));
+    
+    res.json({ success: true, address });
+  } catch (err) {
+    console.error('Wallet update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper: read risk_config.json defaults synchronously (used for fallback)
+function getRiskConfigDefaults() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join('D:', 'dev', 'trading', 'risk_config.json'), 'utf8'));
+    const tpLevels = raw.take_profit_levels || [];
+    return {
+      leverage: raw.leverage || 3,
+      stopLoss: (raw.stop_loss_pct || 0.05) * 100,
+      takeProfit: tpLevels.length > 0 ? parseFloat((tpLevels[0].level * 100).toFixed(2)) : 3.0,
+    };
+  } catch (_) {
+    return { leverage: 3, stopLoss: 5.0, takeProfit: 3.0 };
+  }
+}
+
+// Helper: read account settings from .account_settings.json
+function getAccountSettings() {
+  try {
+    const settingsPath = path.join('D:', 'dev', 'trading', '.account_settings.json');
+    const raw = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const env = raw.environment ?? 'testnet';
+    const envConfig = raw[env] ?? {};
+    return {
+      tradingEnabled: raw.tradingEnabled ?? false,
+      cooldownMinutes: raw.cooldownMinutes ?? 30,
+      allowMultiplePositions: raw.allowMultiplePositions ?? false,
+      positionSizePct: raw.positionSizePct ?? 2.0,
+      environment: env,
+      apiUrl: envConfig.apiUrl ?? (env === 'mainnet' ? 'https://api.hyperliquid.xyz' : 'https://api.hyperliquid-testnet.xyz'),
+      walletAddress: envConfig.walletAddress ?? '',
+      testnet: raw.testnet ?? { apiUrl: 'https://api.hyperliquid-testnet.xyz', walletAddress: '', privateKeyEnv: 'HYPERLIQUID_TESTNET_PRIVATE_KEY' },
+      mainnet: raw.mainnet ?? { apiUrl: 'https://api.hyperliquid.xyz', walletAddress: '', privateKeyEnv: 'HYPERLIQUID_MAINNET_PRIVATE_KEY' },
+    };
+  } catch (_) {
+    return { 
+      tradingEnabled: false,
+      cooldownMinutes: 30, 
+      allowMultiplePositions: false, 
+      positionSizePct: 2.0,
+      environment: 'testnet',
+      apiUrl: 'https://api.hyperliquid-testnet.xyz',
+      walletAddress: '',
+      testnet: { apiUrl: 'https://api.hyperliquid-testnet.xyz', walletAddress: '', privateKeyEnv: 'HYPERLIQUID_TESTNET_PRIVATE_KEY' },
+      mainnet: { apiUrl: 'https://api.hyperliquid.xyz', walletAddress: '', privateKeyEnv: 'HYPERLIQUID_MAINNET_PRIVATE_KEY' }
+    };
+  }
+}
+
+// GET /api/trading/account - get account info (balance, addresses, deployed capital)
+app.get('/api/trading/account', async (req, res) => {
+  try {
+    // Get environment-specific wallet addresses from settings
+    const settings = getAccountSettings();
+    const env = settings.environment || 'testnet';
+    const envConfig = settings[env] || {};
+    
+    const MAIN_WALLET = envConfig.mainWalletAddress || envConfig.walletAddress || '0x97c465489243175580fcDe624c2ef640c1897a00';
+    const AGENT_WALLET = envConfig.walletAddress || process.env.HYPERLIQUID_WALLET || '0x89823A4f85cc8ef3A5574E8a56741A7b4562f288';
+    
+    // Run Python to fetch account info
+    const scriptPath = path.join(PROJECT_ROOT, 'get_account_info.py');
+    
+    const pythonProcess = spawn(PYTHON_PATH, [scriptPath], {
+      cwd: PROJECT_ROOT,
+      env: { 
+        ...process.env, 
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONPATH: PROJECT_ROOT
+      }
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    let responded = false;
+    
+    pythonProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    pythonProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+    
+    const timeout = setTimeout(() => {
+      if (responded) return;
+      responded = true;
+      pythonProcess.kill();
+      // Return fallback data from risk_config.json
+      const rfd = getRiskConfigDefaults();
+      res.json({
+        mainWallet: MAIN_WALLET,
+        agentWallet: AGENT_WALLET,
+        balance: 0,
+        deployedCapital: 0,
+        available: 0,
+        positionCount: 0,
+        unrealizedPnl: 0,
+        totalMargin: 0,
+        pnl24h: null,
+        pnl7d: null,
+        pnl30d: null,
+        ...rfd,
+      });
+    }, 10000);
+    
+    pythonProcess.on('close', (code) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(timeout);
+      
+      if (code !== 0) {
+        console.error('[Account] Python error:', code, errorOutput);
+        const rfd2 = getRiskConfigDefaults();
+        const settings2 = getAccountSettings();
+        return res.json({
+          mainWallet: MAIN_WALLET,
+          agentWallet: AGENT_WALLET,
+          balance: 0,
+          deployedCapital: 0,
+          available: 0,
+          positionCount: 0,
+          unrealizedPnl: 0,
+          totalMargin: 0,
+          pnl24h: null,
+          pnl7d: null,
+          pnl30d: null,
+          ...rfd2,
+          ...settings2
+        });
+      }
+      
+      try {
+        const data = JSON.parse(output.trim());
+        const settings = getAccountSettings();
+        res.json({
+          mainWallet: MAIN_WALLET,
+          agentWallet: AGENT_WALLET,
+          ...data,
+          ...settings
+        });
+      } catch (parseErr) {
+        console.error('[Account] JSON parse error:', parseErr.message);
+        const rfd3 = getRiskConfigDefaults();
+        const settings3 = getAccountSettings();
+        res.json({
+          mainWallet: MAIN_WALLET,
+          agentWallet: AGENT_WALLET,
+          balance: 0,
+          deployedCapital: 0,
+          available: 0,
+          positionCount: 0,
+          unrealizedPnl: 0,
+          totalMargin: 0,
+          pnl24h: null,
+          pnl7d: null,
+          pnl30d: null,
+          ...rfd3,
+          ...settings3
+        });
+      }
+    });
+    
+    pythonProcess.on('error', (err) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(timeout);
+      console.error('[Account] Spawn error:', err);
+      const rfd4 = getRiskConfigDefaults();
+      const settings4 = getAccountSettings();
+      res.json({
+        mainWallet: MAIN_WALLET,
+        agentWallet: AGENT_WALLET,
+        balance: 0,
+        deployedCapital: 0,
+        available: 0,
+        positionCount: 0,
+        unrealizedPnl: 0,
+        totalMargin: 0,
+        pnl24h: null,
+        pnl7d: null,
+        pnl30d: null,
+        ...rfd4,
+        ...settings4
+      });
+    });
+  } catch (err) {
+    console.error('Account fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/trading/account - update account settings (leverage, sl, tp, cooldown, position rules, environment, trading enabled)
+app.post('/api/trading/account', async (req, res) => {
+  try {
+    const { tradingEnabled, leverage, stopLoss, takeProfit, cooldownMinutes, allowMultiplePositions, positionSizePct, environment, testnet, mainnet } = req.body;
+    
+    // Save to settings file
+    const settingsPath = path.join('D:', 'dev', 'trading', '.account_settings.json');
+    let settings = {};
+    
+    try {
+      const data = await fsp.readFile(settingsPath, 'utf8');
+      settings = JSON.parse(data);
+    } catch (e) {
+      // File doesn't exist
+    }
+    
+    if (tradingEnabled !== undefined) settings.tradingEnabled = tradingEnabled;
+    if (leverage !== undefined) settings.leverage = leverage;
+    if (stopLoss !== undefined) settings.stopLoss = stopLoss;
+    if (takeProfit !== undefined) settings.takeProfit = takeProfit;
+    if (cooldownMinutes !== undefined) settings.cooldownMinutes = cooldownMinutes;
+    if (allowMultiplePositions !== undefined) settings.allowMultiplePositions = allowMultiplePositions;
+    if (positionSizePct !== undefined) settings.positionSizePct = positionSizePct;
+    if (environment !== undefined && environment !== null) settings.environment = environment;
+    if (testnet !== undefined) settings.testnet = { ...settings.testnet, ...testnet };
+    if (mainnet !== undefined) settings.mainnet = { ...settings.mainnet, ...mainnet };
+    settings.updatedAt = new Date().toISOString();
+    
+    await fsp.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+
+    // Also update risk_config.json â€” this is the source of truth for the trading bot
+    const riskConfigPath = path.join('D:', 'dev', 'trading', 'risk_config.json');
+    try {
+      let riskConfig = {};
+      try {
+        const riskData = await fsp.readFile(riskConfigPath, 'utf8');
+        riskConfig = JSON.parse(riskData);
+      } catch (e) {
+        // File doesn't exist yet
+      }
+
+      if (leverage !== undefined) {
+        riskConfig.leverage = parseFloat(leverage);
+      }
+      if (stopLoss !== undefined) {
+        riskConfig.stop_loss_pct = parseFloat(stopLoss) / 100;
+      }
+      if (takeProfit !== undefined) {
+        const tpDecimal = parseFloat(takeProfit) / 100;
+        // Update the first TP level; keep other levels scaled proportionally
+        const existingLevels = riskConfig.take_profit_levels || [];
+        if (existingLevels.length > 0) {
+          const oldFirstLevel = existingLevels[0].level;
+          riskConfig.take_profit_levels = existingLevels.map((lvl, i) => {
+            if (i === 0) return { ...lvl, level: tpDecimal };
+            // Scale subsequent levels proportionally
+            const ratio = oldFirstLevel > 0 ? lvl.level / oldFirstLevel : (i + 1);
+            return { ...lvl, level: parseFloat((tpDecimal * ratio).toFixed(4)) };
+          });
+        } else {
+          riskConfig.take_profit_levels = [
+            { level: tpDecimal, close_pct: 0.25, label: 'TP1' },
+            { level: tpDecimal * 1.5, close_pct: 0.25, label: 'TP2' },
+            { level: tpDecimal * 2, close_pct: 0.25, label: 'TP3' },
+            { level: tpDecimal * 2.5, close_pct: 0.25, label: 'TP4' },
+          ];
+        }
+      }
+
+      await fsp.writeFile(riskConfigPath, JSON.stringify(riskConfig, null, 2));
+      console.log('[Account] risk_config.json updated:', { leverage, stopLoss, takeProfit });
+    } catch (riskErr) {
+      console.error('[Account] Failed to update risk_config.json:', riskErr.message);
+      // Non-fatal â€” still return success for the main settings update
+    }
+    
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error('Account update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/trading/status - get current trading status
+app.get('/api/trading/status', async (req, res) => {
+  try {
+    // Try to read from position state file
+    const positionPath = path.join('D:', 'dev', 'trading', '.position_state.json');
+    let status = {
+      isTrading: true,
+      dailyDrawdown: 0,
+      consecutiveLosses: 0,
+      conditionsMet: true,
+      pausedUntil: null,
+    };
+    
+    try {
+      const data = await fsp.readFile(positionPath, 'utf8');
+      const state = JSON.parse(data);
+      
+      status = {
+        isTrading: state.isTrading ?? state.tradingEnabled ?? true,
+        dailyDrawdown: state.dailyDrawdown || state.daily_pnl_pct || 0,
+        consecutiveLosses: state.consecutiveLosses || state.consecutive_losses || 0,
+        conditionsMet: state.conditionsMet ?? true,
+        pausedUntil: state.pausedUntil || state.paused_until || null,
+      };
+    } catch (e) {
+      // File doesn't exist, return defaults
+    }
+    
+    res.json(status);
+  } catch (err) {
+    console.error('Status fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/strategies - return strategy metadata from strategy_registry.py
+app.get('/api/strategies', (req, res) => {
+  try {
+    const { exec } = require('child_process');
+    const scriptPath = path.join(PROJECT_ROOT, 'strategy_registry.py');
+    
+    exec(
+      `"${PYTHON_PATH}" "${scriptPath}"`,
+      { timeout: 15000, cwd: PROJECT_ROOT, env: { ...process.env, PYTHONPATH: PROJECT_ROOT } },
+      (error, stdout, stderr) => {
+        if (error) {
+          console.error('Strategies fetch error:', error.message);
+          return res.status(500).json({ error: 'Failed to load strategies', detail: error.message });
+        }
+        try {
+          const strategies = JSON.parse(stdout.trim());
+          res.json(strategies);
+        } catch (parseErr) {
+          console.error('JSON parse error:', parseErr.message, 'stdout:', stdout.substring(0, 200));
+          res.status(500).json({ error: 'Invalid JSON from strategy registry', detail: parseErr.message });
+        }
+      }
+    );
+  } catch (err) {
+    console.error('Strategies fetch error:', err.message);
+    res.status(500).json({ error: 'Failed to load strategies', detail: err.message });
+  }
+});
+
+// POST /api/trading/close-position - market close a position
+app.post('/api/trading/close-position', async (req, res) => {
+  const { coin } = req.body;
+  
+  if (!coin) {
+    return res.status(400).json({ error: 'Missing required field: coin' });
+  }
+  
+  try {
+    console.log(`[Close Position] Closing ${coin}`);
+    
+    // Call Python script to close position on Hyperliquid
+    const scriptPath = path.join(PROJECT_ROOT, 'close_position.py');
+    
+    const pythonProcess = spawn(PYTHON_PATH, [scriptPath, coin], {
+      cwd: PROJECT_ROOT,
+      env: {
+        ...process.env,
+        PYTHONPATH: PROJECT_ROOT,
+        PYTHONPATH: PROJECT_ROOT
+      }
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    let responded = false;
+    
+    // Set timeout
+    const timeout = setTimeout(() => {
+      if (!responded) {
+        responded = true;
+        pythonProcess.kill('SIGTERM');
+        console.error('[Close Position] Timeout after 30s');
+        res.status(504).json({ error: 'Request timeout' });
+      }
+    }, 30000);
+    
+    pythonProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+    
+    pythonProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.error('[Close Position] Python stderr:', data.toString());
+    });
+    
+    pythonProcess.on('close', (code) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(timeout);
+      
+      if (code !== 0) {
+        console.error('[Close Position] Python script error, code:', code);
+        return res.status(500).json({ error: 'Script failed', details: errorOutput });
+      }
+      
+      try {
+        const result = JSON.parse(output.trim());
+        console.log('[Close Position] Result:', result);
+        res.json(result);
+      } catch (parseErr) {
+        console.error('[Close Position] JSON parse error:', parseErr.message);
+        res.status(500).json({ error: 'Invalid response from script', output: output.substring(0, 200) });
+      }
+    });
+    
+    pythonProcess.on('error', (err) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(timeout);
+      console.error('[Close Position] Spawn error:', err);
+      res.status(500).json({ error: 'Failed to spawn process', details: err.message });
+    });
+    
+  } catch (err) {
+    console.error('[Close Position] Unexpected error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// NOTE: Data collection is handled by candle_collector_hl.py (HyperLiquid)
+// Dashboard only reads from database — no collection logic here
+// This ensures single source of truth for price data
+
+// GET /api/trading/config — Data source configuration
+app.get('/api/trading/config', (req, res) => {
+  res.json({
+    source: DATA_SOURCE,
+    coins: COINS,
+    collectionIntervalMinutes: COLLECTION_INTERVAL_MINUTES,
+    timeframes: {
+      '5min': { table: 'trading_prices', interval: '5m' },
+      '1h': { table: 'trading_prices_1h', interval: '1h' },
+      '4h': { table: 'trading_prices_4h', interval: '4h' }
+    },
+    note: 'To change interval, update candle_collector_hl.py and COLLECTION_INTERVAL_MINUTES in this file'
+  });
+});
+
+// Health Monitoring Endpoint
+app.get('/api/trading/health', async (req, res) => {
+  try {
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execPromise = util.promisify(exec);
+    
+    // Check scheduled task status
+    let taskStatus = null;
+    try {
+      const { stdout } = await execPromise('powershell.exe -Command "Get-ScheduledTask -TaskName TradingOrchestrator | Get-ScheduledTaskInfo | Select-Object LastRunTime, LastTaskResult, NextRunTime | ConvertTo-Json -Compress"');
+      taskStatus = JSON.parse(stdout);
+    } catch (e) {
+      taskStatus = { error: 'Could not fetch task status' };
+    }
+    
+    // Check last signal from database
+    let lastSignal = null;
+    try {
+      const result = await tradingPool.query(
+        `SELECT coin, action, strategy, confidence, created_at 
+         FROM trading_signals 
+         ORDER BY created_at DESC LIMIT 1`
+      );
+      if (result.rows.length > 0) {
+        lastSignal = result.rows[0];
+      }
+    } catch (e) {
+      lastSignal = { error: 'Could not fetch last signal' };
+    }
+    
+    // Check trade_state.json timestamp
+    let tradeStateStatus = null;
+    try {
+      const stats = fs.statSync(path.join(PROJECT_ROOT, 'trade_state.json'));
+      const minutesSinceUpdate = (Date.now() - stats.mtime.getTime()) / (1000 * 60);
+      tradeStateStatus = {
+        lastModified: stats.mtime.toISOString(),
+        minutesSinceUpdate: Math.round(minutesSinceUpdate),
+        sizeKB: Math.round(stats.size / 1024)
+      };
+    } catch (e) {
+      tradeStateStatus = { error: 'trade_state.json not found' };
+    }
+    
+    // Determine overall health
+    const now = new Date();
+    let health = 'healthy';
+    let issues = [];
+    
+    // Check if orchestrator ran in last 10 minutes
+    if (taskStatus && taskStatus.LastRunTime) {
+      const lastRun = new Date(taskStatus.LastRunTime);
+      const minutesSinceRun = (now - lastRun) / (1000 * 60);
+      if (minutesSinceRun > 10) {
+        health = 'warning';
+        issues.push(`Orchestrator hasn't run in ${Math.round(minutesSinceRun)} minutes`);
+      }
+      if (taskStatus.LastTaskResult !== 0) {
+        health = 'error';
+        issues.push(`Last orchestrator run failed with code ${taskStatus.LastTaskResult}`);
+      }
+    }
+    
+    // Check trade state freshness
+    if (tradeStateStatus.minutesSinceUpdate > 15) {
+      health = tradeStateStatus.minutesSinceUpdate > 30 ? 'error' : 'warning';
+      issues.push(`Trade state is ${tradeStateStatus.minutesSinceUpdate} minutes old`);
+    }
+    
+    res.json({
+      health,
+      issues,
+      timestamp: now.toISOString(),
+      orchestrator: {
+        taskStatus,
+        expectedInterval: '5 minutes'
+      },
+      lastSignal,
+      tradeState: tradeStateStatus
+    });
+  } catch (err) {
+    console.error('Health check error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Agent Dashboard API running on http://localhost:${PORT}`);
+});
