@@ -333,6 +333,77 @@ app.get('/api/trading/account', async (req, res) => {
   }
 });
 
+// Update account settings (wallets, trading params)
+app.post('/api/trading/account', async (req, res) => {
+  try {
+    const settings = req.body;
+    const riskConfigPath = path.join(PROJECT_ROOT, 'risk_config.json');
+    
+    // Read existing config
+    let config = {};
+    try {
+      const data = await fsp.readFile(riskConfigPath, 'utf8');
+      config = JSON.parse(data);
+    } catch (e) {
+      // File doesn't exist, start fresh
+    }
+    
+    // Update with new settings
+    const updatedConfig = {
+      ...config,
+      ...settings,
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Write back
+    await fsp.writeFile(riskConfigPath, JSON.stringify(updatedConfig, null, 2));
+    
+    // Also update .env if wallet addresses changed
+    if (settings.mainWallet || settings.agentWallet) {
+      const envPath = path.join(PROJECT_ROOT, '.env');
+      let envContent = '';
+      try {
+        envContent = await fsp.readFile(envPath, 'utf8');
+      } catch (e) {
+        // File doesn't exist
+      }
+      
+      // Update or add wallet addresses in .env
+      const envLines = envContent.split('\n');
+      const newEnvLines = [];
+      let mainWalletUpdated = false;
+      let agentWalletUpdated = false;
+      
+      for (const line of envLines) {
+        if (line.startsWith('HYPERLIQUID_WALLET=') && settings.mainWallet) {
+          newEnvLines.push(`HYPERLIQUID_WALLET=${settings.mainWallet}`);
+          mainWalletUpdated = true;
+        } else if (line.startsWith('HYPERLIQUID_TESTNET_WALLET=') && settings.mainWallet) {
+          newEnvLines.push(`HYPERLIQUID_TESTNET_WALLET=${settings.mainWallet}`);
+          agentWalletUpdated = true;
+        } else {
+          newEnvLines.push(line);
+        }
+      }
+      
+      // Add if not found
+      if (settings.mainWallet && !mainWalletUpdated) {
+        newEnvLines.push(`HYPERLIQUID_WALLET=${settings.mainWallet}`);
+      }
+      if (settings.agentWallet && !agentWalletUpdated) {
+        newEnvLines.push(`HYPERLIQUID_TESTNET_WALLET=${settings.agentWallet}`);
+      }
+      
+      await fsp.writeFile(envPath, newEnvLines.join('\n'));
+    }
+    
+    res.json({ success: true, settings: updatedConfig });
+  } catch (err) {
+    console.error('Account update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Strategy registry endpoint
 app.get('/api/strategies', (req, res) => {
   try {

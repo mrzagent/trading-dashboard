@@ -22,8 +22,11 @@ export default function RiskSummary({ account, onUpdateSettings }) {
     allowMultiplePositions: DEFAULT_ALLOW_MULTIPLE_POSITIONS,
     positionSizePct: DEFAULT_POSITION_SIZE_PCT,
     environment: DEFAULT_ENVIRONMENT,
+    mainWallet: "",
+    agentWallet: "",
   });
   const [saving, setSaving] = useState(false);
+  const [editingWallets, setEditingWallets] = useState(false);
 
   // Update local settings when account changes (API returns risk_config.json values)
   useEffect(() => {
@@ -38,6 +41,8 @@ export default function RiskSummary({ account, onUpdateSettings }) {
           account.allowMultiplePositions ?? DEFAULT_ALLOW_MULTIPLE_POSITIONS,
         positionSizePct: account.positionSizePct ?? DEFAULT_POSITION_SIZE_PCT,
         environment: account.environment ?? DEFAULT_ENVIRONMENT,
+        mainWallet: account.mainWallet ?? "",
+        agentWallet: account.agentWallet ?? "",
       });
     }
   }, [account]);
@@ -102,7 +107,9 @@ export default function RiskSummary({ account, onUpdateSettings }) {
     localSettings.cooldownMinutes !== accountCooldownMinutes ||
     localSettings.allowMultiplePositions !== accountAllowMultiplePositions ||
     localSettings.positionSizePct !== accountPositionSizePct ||
-    localSettings.environment !== accountEnvironment;
+    localSettings.environment !== accountEnvironment ||
+    localSettings.mainWallet !== mainWallet ||
+    localSettings.agentWallet !== agentWallet;
 
   const formatPnl = (val) => {
     if (val === null || val === undefined) return "—";
@@ -141,18 +148,57 @@ export default function RiskSummary({ account, onUpdateSettings }) {
         </div>
         {/* Wallet Addresses */}
         <div className="wallets">
-          <div className="wallet-row">
-            <span className="wallet-label">Main</span>
-            <span className="wallet-addr" title={mainWallet}>
-              {formatAddress(mainWallet)}
-            </span>
-          </div>
-          <div className="wallet-row">
-            <span className="wallet-label">Agent</span>
-            <span className="wallet-addr" title={agentWallet}>
-              {formatAddress(agentWallet)}
-            </span>
-          </div>
+          {editingWallets ? (
+            <>
+              <div className="wallet-row editable">
+                <span className="wallet-label">Main</span>
+                <input
+                  type="text"
+                  className="wallet-input"
+                  value={localSettings.mainWallet}
+                  onChange={(e) => handleChange("mainWallet", e.target.value)}
+                  placeholder="0x..."
+                />
+              </div>
+              <div className="wallet-row editable">
+                <span className="wallet-label">Agent</span>
+                <input
+                  type="text"
+                  className="wallet-input"
+                  value={localSettings.agentWallet}
+                  onChange={(e) => handleChange("agentWallet", e.target.value)}
+                  placeholder="0x..."
+                />
+              </div>
+              <button
+                className="wallet-edit-btn done"
+                onClick={() => setEditingWallets(false)}
+              >
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="wallet-row">
+                <span className="wallet-label">Main</span>
+                <span className="wallet-addr" title={mainWallet}>
+                  {formatAddress(mainWallet)}
+                </span>
+              </div>
+              <div className="wallet-row">
+                <span className="wallet-label">Agent</span>
+                <span className="wallet-addr" title={agentWallet}>
+                  {formatAddress(agentWallet)}
+                </span>
+              </div>
+              <button
+                className="wallet-edit-btn"
+                onClick={() => setEditingWallets(true)}
+              >
+                Edit
+              </button>
+            </>
+          )}
         </div>
         <div className="exchange-info">
           <img src={hyperliquid} alt="Hyperliquid" />
