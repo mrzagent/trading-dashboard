@@ -1,5 +1,53 @@
-/* Home.css - Cleared for redesign */
-
 .home-wrapper {
-  /* Empty wrapper for future homepage design */
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.home-wrapper.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  font-size: 18px;
+  color: #888;
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: #fff;
+}
+
+.home-section {
+  margin-bottom: 32px;
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #fff;
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .home-wrapper {
+    padding: 16px;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+
+  .market-grid {
+    grid-template-columns: 1fr;
+  }
 }
