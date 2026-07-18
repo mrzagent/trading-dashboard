@@ -1,0 +1,749 @@
+﻿import { useState, useEffect, useCallback } from "react";
+import "./Trading.css";
+import btcSvg from "../assets/btc.svg";
+import ethSvg from "../assets/eth.svg";
+import solSvg from "../assets/sol.svg";
+import yenImg from "../assets/yen.png";
+import basherImg from "../assets/basher.png";
+import virgilImg from "../assets/virgil.png";
+import reubenImg from "../assets/rueben.png";
+
+const COIN_ICON = { BTC: btcSvg, ETH: ethSvg, SOL: solSvg };
+const COIN_COLOR = { BTC: "#f7931a", ETH: "#627eea", SOL: "#9945ff" };
+const COIN_ORDER = ["BTC", "ETH", "SOL"];
+
+// â”€â”€ Timing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Schedule (10-min window):
+//   :00 â†’ Data fetch fires (second 0)
+//   :01 â†’ Analysts fire   (second 60)
+//   :04 â†’ Orchestrator fires (second 240)
+function getSecsUntilFire(fireSecInWindow) {
+  const now = new Date();
+  const totalSec = now.getMinutes() * 60 + now.getSeconds();
+  const windowSec = 600; // 10 min
+  const posInWindow = totalSec % windowSec;
+
+  let secsUntil;
+  if (posInWindow < fireSecInWindow) {
+    secsUntil = fireSecInWindow - posInWindow;
+  } else if (posInWindow === fireSecInWindow) {
+    secsUntil = windowSec; // just fired, next window
+  } else {
+    secsUntil = windowSec - posInWindow + fireSecInWindow;
+  }
+  return secsUntil;
+}
+
+function formatSecsCountdown(secs) {
+  const s = Math.max(0, Math.floor(secs));
+  const m = Math.floor(s / 60)
+    .toString()
+    .padStart(2, "0");
+  const ss = (s % 60).toString().padStart(2, "0");
+  return `${m}:${ss}`;
+}
+
+// â”€â”€ Formatters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function formatPrice(price) {
+  if (price == null) return "--";
+  return (
+    "$" +
+    Number(price).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
+}
+
+function formatPct(val) {
+  if (val == null) return "--";
+  const n = Number(val);
+  return (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+
+function formatVolume(v) {
+  if (v === null || v === undefined) return "â€”";
+  const n = parseFloat(v);
+  if (n >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
+  return "$" + n.toLocaleString();
+}
+
+function formatRSI(val) {
+  if (val == null) return "--";
+  return Number(val).toFixed(1);
+}
+
+function formatTime(ts) {
+  if (!ts) return "--";
+  const d = new Date(ts);
+  return d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+// â”€â”€ Countdown (receives remainingMs from page level â€” no internal timer) â”€â”€â”€â”€â”€â”€â”€
+function Countdown({ remainingMs }) {
+  if (remainingMs == null) return null;
+
+  const totalSec = Math.max(0, Math.floor(remainingMs / 1000));
+  const m = Math.floor(totalSec / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = (totalSec % 60).toString().padStart(2, "0");
+
+  return (
+    <span className="trading-countdown">
+      Next update in{" "}
+      <span className="countdown-value">
+        {m}:{s}
+      </span>
+      <span className="countdown-source"> Â· via CoinGecko</span>
+    </span>
+  );
+}
+
+// â”€â”€ Change / badge components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function ChangeBadge({ label, value }) {
+  if (value === null || value === undefined)
+    return (
+      <span className="change-badge neutral">
+        <span className="badge-label">{label}</span> â€”
+      </span>
+    );
+  const pos = parseFloat(value) >= 0;
+  return (
+    <span className={`change-badge ${pos ? "positive" : "negative"}`}>
+      <span className="badge-label">{label}</span>
+      {pos ? "+" : ""}
+      {parseFloat(value).toFixed(2)}%
+    </span>
+  );
+}
+
+// â”€â”€ CoinCard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function CoinCard({ row }) {
+  const coin = row.coin;
+
+  return (
+    <div
+      className={`coin-card${row.alert_triggered ? " coin-card--alert" : ""}`}
+    >
+      {row.alert_triggered && <div className="alert-badge">Alert</div>}
+      <div className="coin-header">
+        <span
+          className="coin-symbol"
+          style={{ color: COIN_COLOR[coin] || "#e8ecf4" }}
+        >
+          {COIN_ICON[coin] ? (
+            <img src={COIN_ICON[coin]} alt={coin} className="coin-icon" />
+          ) : (
+            coin
+          )}
+        </span>
+        <span className="coin-name">{coin}</span>
+      </div>
+      <div className="coin-price">{formatPrice(row.price)}</div>
+      <div className="change-summary">
+        <div className="change-badges">
+          <ChangeBadge label="10m" value={row.change_10min} />
+          <ChangeBadge label="1h" value={row.change_1h} />
+          <ChangeBadge label="4h" value={row.change_4h} />
+          <ChangeBadge label="24h" value={row.change_24h} />
+        </div>
+        <div className="coin-meta">
+          <div className="coin-meta-item">
+            <span className="meta-label">RSI</span>
+            <span className="meta-value">{formatRSI(row.rsi)}</span>
+          </div>
+          <div className="coin-meta-item">
+            <span className="meta-label">Momentum</span>
+            <span className="meta-value">{row.momentum ?? "--"}</span>
+          </div>
+          <div className="coin-meta-item">
+            <span className="meta-label"> Vol 24h:</span>
+            <span className="meta-value"> {formatVolume(row.volume_24h)}</span>
+          </div>
+        </div>
+        <div className="coin-time">Updated {formatTime(row.captured_at)}</div>
+      </div>
+    </div>
+  );
+}
+
+// â”€â”€ History Tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function HistoryTabs() {
+  const [agentSignals, setAgentSignals] = useState({});
+
+  const [activeTab, setActiveTab] = useState("last");
+  const [tabHistory, setTabHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchTabHistory = useCallback(async (tab) => {
+    setLoading(true);
+    try {
+      const url =
+        tab === "last"
+          ? "http://localhost:3001/api/trading/history"
+          : `http://localhost:3001/api/trading/history?minutes=${tab}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      setTabHistory(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setTabHistory([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTabHistory(activeTab);
+  }, [activeTab, fetchTabHistory]);
+
+  const tabs = [
+    { key: "last", label: "Latest" },
+    { key: "20", label: "20 min ago" },
+    { key: "30", label: "30 min ago" },
+    { key: "40", label: "40 min ago" },
+    { key: "50", label: "50 min ago" },
+    { key: "60", label: "60 min ago" },
+  ];
+
+  return (
+    <div className="history-tabs-wrapper">
+      <div className="history-tab-bar">
+        {tabs.map(({ key, label }) => (
+          <button
+            key={key}
+            className={`history-tab-btn${activeTab === key ? " active" : ""}`}
+            onClick={() => setActiveTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="history-tab-content">
+        {loading && <p className="trading-loading">Loading...</p>}
+        {!loading && tabHistory.length === 0 && (
+          <p className="trading-empty">No data for this time window.</p>
+        )}
+        {!loading &&
+          COIN_ORDER.map((coin) => {
+            const rows = tabHistory.filter((r) => r.coin === coin);
+            if (!rows.length) return null;
+            return (
+              <div key={coin} className="history-coin-section">
+                <div>
+                  <div
+                    className="history-coin-header"
+                    style={{ borderLeftColor: COIN_COLOR[coin] }}
+                  >
+                    <span
+                      className="history-coin-symbol"
+                      style={{ color: COIN_COLOR[coin] }}
+                    >
+                      {COIN_ICON[coin] ? (
+                        <img
+                          src={COIN_ICON[coin]}
+                          alt={coin}
+                          className="coin-icon"
+                        />
+                      ) : (
+                        coin
+                      )}
+                    </span>
+                    <span className="history-coin-name">{coin}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <table className="history-table">
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr
+                          key={i}
+                          className={r.alert_triggered ? "row-alert" : ""}
+                        >
+                          <td className="col-time">
+                            {formatTime(r.captured_at)}
+                          </td>
+                          <td className="col-price">{formatPrice(r.price)}</td>
+                          <td
+                            className={`col-change ${Number(r.change_24h) >= 0 ? "positive" : "negative"}`}
+                          >
+                            {formatPct(r.change_24h)}
+                          </td>
+                          <td className="col-rsi">{formatRSI(r.rsi)}</td>
+                          <td className="col-alert">
+                            {r.alert_triggered ? "[!]" : "--"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
+// â”€â”€ Trading Agents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const ANALYST_AGENTS = [
+  {
+    name: "Yen",
+    img: yenImg,
+    initials: "YN",
+    color: "#627eea",
+    strategy: "RSI Mean-Reversion",
+    timeframe: "1h candle",
+    delivery: "Dashboard + DB âœ…",
+  },
+  {
+    name: "Basher",
+    img: basherImg,
+    initials: "BS",
+    color: "#e05252",
+    strategy: "Volume Spike",
+    timeframe: "4h candle",
+    delivery: "Dashboard + DB âœ…",
+  },
+  {
+    name: "Virgil",
+    img: virgilImg,
+    initials: "VG",
+    color: "#9945ff",
+    strategy: "Fair Value Gap (FVG)",
+    timeframe: "15min candle",
+    delivery: "Dashboard + DB âœ…",
+  },
+];
+
+// Reuben has two roles â€” rendered as one merged card
+const REUBEN = {
+  name: "Reuben",
+  img: reubenImg,
+  initials: "RB",
+  color: "#f7931a",
+  trader: {
+    strategy: "Momentum Trend Following",
+    timeframe: "24h candle",
+    delivery: "Dashboard + DB âœ…",
+  },
+  orchestrator: {
+    strategy: "Orchestrator (Quorum)",
+    timeframe: "10-min window +4m",
+    delivery: "Announces to chat âœ…",
+  },
+};
+
+// Avatar: photo if available, else CSS initials circle
+function AgentAvatar({ img, initials, color, name, size = 48 }) {
+  const [err, setErr] = useState(false);
+
+  if (img && !err) {
+    return (
+      <img
+        src={img}
+        alt={name}
+        className="agent-avatar-img"
+        style={{ width: size, height: size }}
+        onError={() => setErr(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="agent-avatar-initials"
+      style={{
+        width: size,
+        height: size,
+        background: color,
+        fontSize: size * 0.35,
+      }}
+      title={name}
+    >
+      {initials}
+    </div>
+  );
+}
+
+const COINS_ORDER = ["BTC", "ETH", "SOL"];
+
+function actionTag(signalType) {
+  if (!signalType) return "HOLD";
+  const upper = signalType.toUpperCase();
+  if (upper.includes("BUY")) return "BUY";
+  if (upper.includes("SELL")) return "SELL";
+  // NEUTRAL, HOLD, or anything else = HOLD
+  return "HOLD";
+}
+
+function actionClass(signalType) {
+  const tag = actionTag(signalType);
+  if (tag === "BUY") return "buy";
+  if (tag === "SELL") return "sell";
+  return "hold";
+}
+
+function CoinSignals({ signals }) {
+  if (!signals)
+    return <div className="coin-signals coin-signals--empty">No data yet</div>;
+  return (
+    <div className="coin-signals">
+      <div className="coin-signals-header">
+        <span className="coin-signals-col-asset">Asset</span>
+        <span className="coin-signals-col-result">Result</span>
+        <span className="coin-signals-col-conf">Confidence</span>
+      </div>
+      {COINS_ORDER.map((coin) => {
+        const s = signals[coin];
+        const tag = s ? actionTag(s.signal_type) : "HOLD";
+        const cls = s ? actionClass(s.signal_type) : "hold";
+        const conf = s != null ? `${Math.round(parseFloat(s.confidence) * 100)}%` : "â€”";
+        return (
+          <div key={coin} className={`coin-signal-row coin-signal--${cls}`}>
+            <span className="coin-signal-name">
+              <img src={COIN_ICON[coin]} alt={coin} className="coin-icon" />{" "}
+              {coin}
+            </span>
+            <span className={`coin-signal-action coin-signal-action--${cls}`}>{tag}</span>
+            <span className="coin-signal-conf">{conf}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AgentCard({ agent, agentCountdownSec, signals }) {
+  return (
+    <div className="agent-card">
+      <div className="agent-card-header">
+        <AgentAvatar
+          img={agent.img}
+          initials={agent.initials}
+          color={agent.color}
+          name={agent.name}
+        />
+        <div className="trading-agent-type">
+          <div className="trading-agent-status">
+            <div className="d-flex f-align-center">
+              <span className="agent-name">{agent.name}</span>
+              <span className="agent-status-dot" title="Active" />
+            </div>
+            <span className="agent-countdown">
+              {formatSecsCountdown(agentCountdownSec)}
+            </span>
+          </div>
+          <div className="agent-strategy">{agent.strategy}</div>
+        </div>
+      </div>
+
+      <div className="agent-meta">
+        <div className="agent-meta-row">
+          <span className="agent-meta-label">Timeframe</span>
+          <span className="agent-meta-value">{agent.timeframe}</span>
+        </div>
+        <div className="agent-meta-row">
+          <span className="agent-meta-label">Schedule</span>
+          <span className="agent-meta-value">Every 10 min</span>
+        </div>
+        <div className="agent-meta-row">
+          <span className="agent-meta-label">Delivery</span>
+          <span className="agent-meta-value agent-delivery--silent">
+            {agent.delivery}
+          </span>
+        </div>
+      </div>
+      <CoinSignals signals={signals} />
+    </div>
+  );
+}
+
+function ReubenCard({ agentCountdownSec, orchestratorCountdownSec, signals }) {
+  return (
+    <div className="agent-card agent-card--reuben">
+      <div className="agent-card-header">
+        <AgentAvatar
+          img={REUBEN.img}
+          initials={REUBEN.initials}
+          color={REUBEN.color}
+          name={REUBEN.name}
+        />
+        <div className="d-flex f-dir-col text-left">
+          <div className="d-flex f-align-center">
+            <span className="agent-name">{REUBEN.name}</span>
+            <span className="agent-status-dot" title="Active" />
+          </div>
+          <span className="agent-role-strategy">{REUBEN.trader.strategy}</span>
+        </div>
+
+        <div className="d-flex">
+          <span className="agent-role-tag role-trader">Trader</span>
+          <span className="agent-role-tag role-orchestrator">Orchestrator</span>
+          <div className="agent-role-tag role-quorum">Quorum</div>
+        </div>
+      </div>
+
+      <div className="d-flex">
+        {/* Trader role */}
+
+        <div className="agent-meta">
+          <div className="agent-meta-row">
+            <span className="agent-meta-label">Timeframe</span>
+            <span className="agent-meta-value">{REUBEN.trader.timeframe}</span>
+          </div>
+          <div className="agent-meta-row">
+            <span className="agent-meta-label">Schedule</span>
+            <span className="agent-meta-value">
+              Every 10 min{" "}
+              <span className="agent-countdown">
+                {formatSecsCountdown(agentCountdownSec)}
+              </span>
+            </span>
+          </div>
+          <div className="agent-meta-row">
+            <span className="agent-meta-label">Delivery</span>
+            <span className="agent-meta-value agent-delivery--silent">
+              {REUBEN.trader.delivery}
+            </span>
+          </div>
+        </div>
+
+        <div className="agent-role-divider" />
+
+        {/* Orchestrator role */}
+        <div className="agent-role-row"></div>
+        <div className="agent-meta">
+          <div className="agent-meta-row">
+            <span className="agent-meta-label">Timeframe</span>
+            <span className="agent-meta-value">
+              {REUBEN.orchestrator.timeframe}
+            </span>
+          </div>
+          <div className="agent-meta-row">
+            <span className="agent-meta-label">Schedule</span>
+            <span className="agent-meta-value">
+              Every 10 min{" "}
+              <span className="agent-countdown">
+                {formatSecsCountdown(orchestratorCountdownSec)}
+              </span>
+            </span>
+          </div>
+          <div className="agent-meta-row">
+            <span className="agent-meta-label">Delivery</span>
+            <span className="agent-meta-value agent-delivery--loud">
+              {REUBEN.orchestrator.delivery}
+            </span>
+          </div>
+        </div>
+      </div>
+      <CoinSignals signals={signals} />
+    </div>
+  );
+}
+
+function TradingAgentsSection({
+  agentCountdownSec,
+  orchestratorCountdownSec,
+  agentSignals,
+}) {
+  return (
+    <section className="trading-section">
+      <div className="trading-agent-grid">
+        <ReubenCard
+          agentCountdownSec={agentCountdownSec}
+          orchestratorCountdownSec={orchestratorCountdownSec}
+          signals={agentSignals?.Reuben}
+        />
+
+        {ANALYST_AGENTS.map((agent) => (
+          <AgentCard
+            key={agent.name}
+            agent={agent}
+            agentCountdownSec={agentCountdownSec}
+            signals={agentSignals?.[agent.name]}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+// ===== LastOutput component (Livingston) =====
+function LastOutput({ signal }) {
+  if (!signal) {
+    return (
+      <div style={{ fontSize: "0.7rem", color: "#6b7280", marginTop: "6px" }}>
+        No data yet
+      </div>
+    );
+  }
+  const fmt = (dt) => {
+    if (!dt) return "";
+    const d = new Date(dt);
+    const mo = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${mo}/${day} ${h}:${min}`;
+  };
+  const pct =
+    signal.confidence != null
+      ? Math.round(parseFloat(signal.confidence) * 100)
+      : "?";
+  const notes = signal.notes
+    ? signal.notes.length > 60
+      ? signal.notes.slice(0, 60) + "â€¦"
+      : signal.notes
+    : "";
+  return (
+    <div
+      style={{
+        fontSize: "0.7rem",
+        color: "#9ca3af",
+        marginTop: "6px",
+        lineHeight: 1.4,
+      }}
+    >
+      <div style={{ color: "#d1d5db", fontWeight: 500 }}>Last output:</div>
+      <div>
+        {signal.signal_type} â€” {pct}% confidence
+      </div>
+      <div>
+        {signal.symbol} Â· {fmt(signal.created_at)}
+      </div>
+      {notes && (
+        <div style={{ color: "#6b7280", fontStyle: "italic" }}>{notes}</div>
+      )}
+    </div>
+  );
+}
+// ===== End LastOutput =====
+
+export default function Trading() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastFetch, setLastFetch] = useState(null);
+  const [agentSignals, setAgentSignals] = useState({});
+  // Tick drives countdown recalc â€” increments every 1s for real-time display
+  const [tick, setTick] = useState(0);
+
+  const fetchData = useCallback(() => {
+    fetch("http://localhost:3001/api/trading")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((d) => {
+        setData(d);
+        setLastFetch(new Date());
+        setLoading(false);
+        setError(null);
+      })
+      .catch((err) => {
+        setError(`Failed to load trading data: ${err.message}`);
+        setLoading(false);
+      });
+
+    fetch("http://localhost:3001/api/trading/data")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.agentSignals) setAgentSignals(d.agentSignals);
+      })
+      .catch((e) => console.error("[agentSignals]", e));
+  }, []);
+
+  // Single page-level 1s interval: bumps tick every second for real-time countdowns;
+  // data fetch only fires at the :00 mark of each 10-min window
+  useEffect(() => {
+    fetchData();
+    const id = setInterval(() => {
+      const now = new Date();
+      const posInWindow = (now.getMinutes() * 60 + now.getSeconds()) % 600;
+      if (posInWindow === 0) {
+        fetchData();
+      }
+      setTick((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [fetchData]);
+
+  // Countdown values calculated at page level, passed down as props
+  // Data fetch fires at :00 (sec 0), agents at :01 (sec 60), orchestrator at :04 (sec 240)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const dataCountdownSec = tick >= 0 ? getSecsUntilFire(0) : 0;
+  const agentCountdownSec = getSecsUntilFire(60);
+  const orchestratorCountdownSec = getSecsUntilFire(240);
+  const dataCountdownMs = dataCountdownSec * 1000;
+
+  const sortedLatest = data?.latest
+    ? [...data.latest].sort((a, b) => {
+        const ai = COIN_ORDER.indexOf(a.coin);
+        const bi = COIN_ORDER.indexOf(b.coin);
+        if (ai === -1 && bi === -1) return a.coin.localeCompare(b.coin);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      })
+    : [];
+
+  return (
+    <div className="container trading-wrapper">
+      <div className="trading-header">
+        <div className="trading-title-row">
+          <h1 className="trading-title">Trading Dashboard</h1>
+          <Countdown remainingMs={dataCountdownMs} />
+          {lastFetch && (
+            <div className="trading-subtitle">
+              Last refreshed at {lastFetch.toLocaleTimeString()} &middot;
+              auto-refresh every 10 min
+            </div>
+          )}
+        </div>
+      </div>
+
+      <TradingAgentsSection
+        agentCountdownSec={agentCountdownSec}
+        orchestratorCountdownSec={orchestratorCountdownSec}
+        agentSignals={agentSignals}
+      />
+
+      {loading && <p className="trading-loading">Loading price data...</p>}
+      {error && <p className="trading-error">{error}</p>}
+
+      {!loading && !error && data && (
+        <>
+          <section className="trading-section">
+            {sortedLatest.length === 0 ? (
+              <p className="trading-empty">
+                No price data found in trading_prices table.
+              </p>
+            ) : (
+              <div className="coin-grid">
+                {sortedLatest.map((row) => (
+                  <CoinCard key={row.coin} row={row} />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="trading-section">
+            <HistoryTabs />
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+

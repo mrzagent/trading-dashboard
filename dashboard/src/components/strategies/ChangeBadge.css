@@ -1,0 +1,20 @@
+.change-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 10px;
+}
+
+.change-badge.positive {
+  color: var(--color-positive);
+  background: var(--color-positive-bg);
+}
+
+.change-badge.negative {
+  color: var(--color-negative);
+  background: var(--color-negative-bg);
+}
+
+.change-badge.neutral {
+  color: var(--color-text-muted);
+  background: rgba(107, 114, 128, 0.15);
+}

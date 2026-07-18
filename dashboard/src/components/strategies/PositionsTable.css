@@ -1,0 +1,158 @@
+.positions-empty {
+  text-align: center;
+  padding: var(--spacing-4xl) var(--spacing-xl);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-card);
+}
+
+.positions-empty .empty-icon {
+  font-size: 3rem;
+  line-height: 100%;
+  display: block;
+  margin-bottom: 20px;
+}
+
+.positions-empty p {
+  font-size: 1.1rem;
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.positions-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-card);
+}
+
+.positions-table {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.positions-table thead,
+.positions-table tr {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+}
+
+.positions-table th {
+  flex: 1;
+  width: 0;
+  font-weight: normal;
+}
+
+.positions-table th {
+  background: var(--color-bg-deep);
+  padding: var(--spacing-md);
+  text-align: left;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.positions-table td {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border-faint);
+}
+
+.position-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.position-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.position-row td {
+  flex: 1;
+  width: 0;
+}
+
+.pos-coin {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.pos-coin-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.pos-coin-name {
+  color: var(--color-text-primary);
+}
+
+.pos-side {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  padding: 2px var(--spacing-sm);
+}
+
+.pos-side[data-side="long"] {
+  border: 1px solid var(--color-accent);
+}
+
+.pos-side[data-side="short"] {
+  border: 1px solid var(--color-negative);
+}
+
+.pos-pnl.positive {
+  color: var(--color-positive);
+}
+
+.pos-pnl.negative {
+  color: var(--color-negative);
+}
+
+.pos-strategy p {
+  display: flex;
+  font-size: 0.7rem;
+  background: var(--color-bg-card);
+  padding: 5px 15px;
+}
+
+.pos-orders .order-ids {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.pos-orders .oid {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  cursor: help;
+}
+
+.pos-orders .oid.entry {
+  background: var(--color-blue-bg);
+  color: var(--color-blue);
+}
+
+.pos-orders .oid.sl {
+  background: var(--color-negative-bg);
+  color: var(--color-negative);
+}
+
+.pos-orders .oid.tp {
+  background: var(--color-positive-bg);
+  color: var(--color-positive);
+}
+
+.pos-sl p {
+  border-left: 1px solid var(--color-negative);
+  padding-left: 10px;
+}
+
+.pos-tp p {
+  border-left: 1px solid var(--color-accent);
+  padding-left: 10px;
+}

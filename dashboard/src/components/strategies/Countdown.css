@@ -1,0 +1,15 @@
+.strategies-countdown {
+  font-size: 0.9rem;
+  padding: var(--spacing-xs) 14px;
+  white-space: nowrap;
+}
+
+.countdown-value {
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown-source {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}

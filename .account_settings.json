@@ -1,4 +1,5 @@
 {
+  "tradingEnabled": false,
   "cooldownMinutes": 30,
   "allowMultiplePositions": false,
   "updatedAt": "2026-06-28T15:41:53.704Z",

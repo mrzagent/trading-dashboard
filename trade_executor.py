@@ -6,18 +6,22 @@ Handles paper trading on Hyperliquid testnet with risk management
 import os
 import sys
 
-# Load environment variables from .openclaw/.env
-from dotenv import load_dotenv
-openclaw_env_path = os.path.expanduser('~/.openclaw/.env')
-if os.path.exists(openclaw_env_path):
-    load_dotenv(openclaw_env_path)
+# Load environment variables from project .env (not global .openclaw/.env)
+# This ensures project-specific configuration and no dependency on global env
+from config_loader import (
+    DB_CONFIG,
+    TRADING_CONFIG,
+    get_hyperliquid_credentials,
+    sync_to_environ
+)
 
-# Set HyperLiquid credentials from environment (if not already set)
-# These come from ~/.openclaw/.env HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY
-if os.getenv('HYPERLIQUID_WALLET'):
-    os.environ['HYPERLIQUID_WALLET'] = os.getenv('HYPERLIQUID_WALLET')
-if os.getenv('HYPERLIQUID_PRIVATE_KEY'):
-    os.environ['HYPERLIQUID_PRIVATE_KEY'] = os.getenv('HYPERLIQUID_PRIVATE_KEY')
+# Ensure environment is synced for any legacy code that reads os.environ directly
+sync_to_environ()
+
+# Get HyperLiquid credentials from unified config
+_hl_creds = get_hyperliquid_credentials()
+os.environ['HYPERLIQUID_WALLET'] = _hl_creds['wallet']
+os.environ['HYPERLIQUID_PRIVATE_KEY'] = _hl_creds['private_key']
 
 import json
 import logging
@@ -1636,6 +1640,13 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
         }
     }
     """
+    # Check if trading is enabled
+    from signal_integrator import load_account_settings
+    settings = load_account_settings()
+    if not settings.get('trading_enabled', False):
+        logger.warning("Trading is disabled. Signal rejected in execute_signal.")
+        return None
+    
     action = signal.get('action', 'HOLD')
     
     if action == 'HOLD':
@@ -1679,8 +1690,7 @@ def execute_signal(signal: Dict, test_mode: bool = True) -> Optional[Trade]:
         take_profit_pct = take_profit_pct / 100  # Convert 3.0 -> 0.03
     
     # Create executor with proper RiskConfig from account settings
-    from signal_integrator import load_account_settings
-    settings = load_account_settings()
+    # settings already loaded above for trading_enabled check
     
     # Get actual account balance (use main wallet) - use spot balance not margin value
     from hyperliquid.info import Info

@@ -1,0 +1,4 @@
+.stats-wrapper {
+  padding: var(--spacing-4xl) var(--spacing-3xl);
+  min-height: 100%;
+}

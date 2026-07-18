@@ -1,4 +1,32 @@
 {
   "positions": {},
-  "alerts_sent": []
+  "alerts_sent": [
+    "open_SOL_18:37",
+    "open_BTC_18:44",
+    "open_ETH_18:54",
+    "sl_hit_SOL_19:04",
+    "sl_hit_BTC_19:04",
+    "sl_hit_SOL_19:09",
+    "sl_hit_ETH_19:14",
+    "sl_hit_ETH_19:24",
+    "sl_hit_ETH_19:29",
+    "sl_hit_SOL_19:29",
+    "sl_hit_BTC_19:29",
+    "sl_hit_BTC_21:14",
+    "sl_hit_BTC_00:39",
+    "sl_hit_BTC_00:44",
+    "sl_hit_ETH_01:49",
+    "sl_hit_ETH_01:59",
+    "sl_hit_SOL_02:34",
+    "sl_hit_BTC_02:59",
+    "sl_hit_SOL_03:09",
+    "sl_hit_BTC_03:39",
+    "sl_hit_BTC_04:09",
+    "sl_hit_BTC_05:14",
+    "sl_hit_BTC_06:34",
+    "sl_hit_BTC_10:09",
+    "close_SOL_11:07",
+    "close_BTC_11:07",
+    "close_ETH_11:07"
+  ]
 }

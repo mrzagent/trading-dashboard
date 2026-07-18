@@ -1,0 +1,333 @@
+@import url("https://fonts.googleapis.com/css2?family=Google+Sans:ital,opsz,wght@0,17..18,400..700;1,17..18,400..700&display=swap");
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — Central CSS Variables
+   All component/page CSS files reference these. Never hardcode values.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  --font-sans: "Google Sans", sans-serif;
+  --font-heading: "Google Sans", sans-serif;
+  --font-mono: "Google Sans Mono", "Menlo", "Consolas", ui-monospace, monospace;
+
+  /* Aliases kept for legacy compat */
+  --sans: var(--font-sans);
+  --heading: var(--font-heading);
+  --mono: var(--font-mono);
+
+  --color-primary: #030303;
+  --color-secondary: #030303;
+
+  /* ── Base colors (light mode) ────────────────────────────────────────── */
+  --text: #6b6375;
+  --text-h: #08060d;
+  --bg: #fff;
+  --border: #e5e4e7;
+  --code-bg: #f4f3ec;
+  --accent: #aa3bff;
+  --accent-bg: rgba(170, 59, 255, 0.1);
+  --accent-border: rgba(170, 59, 255, 0.5);
+  --social-bg: rgba(244, 243, 236, 0.5);
+  --shadow:
+    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+
+  /* ── Dashboard palette (dark-first UI) ──────────────────────────────── */
+  /* Text */
+  --color-text-primary: #e8ecf4;
+  --color-text-secondary: #acb5be;
+  --color-text-muted: #6b7280;
+  --color-text-dim: #9ca3af;
+  --color-text-teal: #acc4ba; /* section labels, agent-role */
+
+  /* Backgrounds */
+  --color-bg-card: rgba(88, 88, 88, 0.07);
+  --color-bg-card-hover: rgba(255, 255, 255, 0.02);
+  --color-bg-overlay: rgba(0, 0, 0, 0.2);
+  --color-bg-deep: rgba(0, 0, 0, 0.3);
+  --color-bg-subtle: rgba(255, 255, 255, 0.03);
+  --color-bg-subtle-hover: rgba(255, 255, 255, 0.05);
+
+  /* Borders */
+  --color-border-card: rgba(255, 255, 255, 0.15);
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-faint: rgba(255, 255, 255, 0.05);
+  --color-border-dim: rgba(255, 255, 255, 0.1);
+  --color-border-medium: rgba(255, 255, 255, 0.2);
+  --color-border-strong: rgba(255, 255, 255, 0.25);
+
+  /* Accent — green / teal (primary dashboard accent) */
+  --color-accent: #4ade80;
+  --color-accent-alt: #34d399;
+  --color-accent-bg: rgba(125, 212, 176, 0.15);
+  --color-accent-bg-dim: rgba(125, 212, 176, 0.08);
+  --color-accent-border: rgba(125, 212, 176, 0.3);
+  --color-accent-border-dim: rgba(125, 212, 176, 0.2);
+
+  /* Accent — cyan (voice visualiser, sidebar active) */
+  --color-cyan: #00dcff;
+  --color-cyan-bg: rgba(0, 220, 255, 0.08);
+  --color-cyan-border: rgba(0, 220, 255, 0.25);
+
+  /* Semantic: positive / negative / warning / info */
+  --color-positive: #7dd4b0;
+  --color-positive-bg: rgba(125, 212, 176, 0.15);
+  --color-positive-border: rgba(125, 212, 176, 0.3);
+
+  --color-negative: #f87171;
+  --color-negative-bg: rgba(248, 113, 113, 0.15);
+  --color-negative-border: rgba(248, 113, 113, 0.3);
+
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(251, 190, 36, 0.05);
+  --color-warning-border: rgba(251, 191, 36, 0.3);
+
+  --color-info: #60a5fa;
+  --color-info-bg: rgba(96, 165, 250, 0.15);
+  --color-info-border: rgba(96, 165, 250, 0.3);
+
+  /* Semantic: purple / violet */
+  --color-purple: #a78bfa;
+  --color-purple-bg: rgba(139, 92, 246, 0.18);
+  --color-purple-border: rgba(139, 92, 246, 0.3);
+
+  /* Semantic: green (live/entry) */
+  --color-green: #22c55e;
+  --color-green-bg: rgba(34, 197, 94, 0.18);
+  --color-green-border: rgba(34, 197, 94, 0.3);
+
+  /* Semantic: amber (exit/swing) */
+  --color-amber: #f59e0b;
+  --color-amber-bg: rgba(245, 158, 11, 0.15);
+  --color-amber-border: rgba(245, 158, 11, 0.3);
+
+  /* Semantic: red (error/short/triggered) */
+  --color-red: #ef4444;
+  --color-red-bg: rgba(239, 68, 68, 0.18);
+  --color-red-border: rgba(239, 68, 68, 0.3);
+
+  /* Semantic: blue */
+  --color-blue: #3b82f6;
+  --color-blue-bg: rgba(59, 130, 246, 0.2);
+  --color-blue-border: rgba(59, 130, 246, 0.3);
+
+  /* ── Spacing ─────────────────────────────────────────────────────────── */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 20px;
+  --spacing-2xl: 24px;
+  --spacing-3xl: 32px;
+  --spacing-4xl: 40px;
+
+  /* ── Border radius ───────────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-3xl: 20px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ─────────────────────────────────────────────────────────── */
+  --shadow-card:
+    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --shadow-hover: 0 6px 28px rgba(255, 255, 255, 0.26);
+  --shadow-glow-cyan:
+    0 0 12px rgba(0, 220, 255, 0.5), 0 0 30px rgba(0, 255, 160, 0.25);
+
+  /* ── Blur ────────────────────────────────────────────────────────────── */
+  --blur-card: blur(30px);
+  --blur-sidebar: blur(12px);
+
+  /* ── Transitions ─────────────────────────────────────────────────────── */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  /* ── Gradients ───────────────────────────────────────────────────────── */
+  --gradient-accent: linear-gradient(
+    90deg,
+    var(--color-accent),
+    var(--color-accent-alt)
+  );
+  --gradient-capital: linear-gradient(
+    90deg,
+    var(--color-accent),
+    var(--color-accent-alt)
+  );
+  --gradient-confidence: linear-gradient(
+    90deg,
+    var(--color-blue),
+    var(--color-accent)
+  );
+
+  /* ── Base font settings ──────────────────────────────────────────────── */
+  font: 18px/145% var(--font-sans);
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+
+/* ── Dark mode overrides for the original light/dark token set ────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #9ca3af;
+    --text-h: #f3f4f6;
+    --bg: #000000;
+    --border: #2e303a;
+    --code-bg: #1f2028;
+    --accent: #c084fc;
+    --accent-bg: rgba(192, 132, 252, 0.15);
+    --accent-border: rgba(192, 132, 252, 0.5);
+    --social-bg: rgba(47, 48, 58, 0.5);
+    --shadow:
+      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+  }
+
+  #social .button-icon {
+    filter: invert(1) brightness(2);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GLOBAL BASE STYLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+body {
+  margin: 0;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  text-align: center;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-secondary);
+}
+
+.container {
+  width: 90%;
+  margin: 0 auto;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  color: var(--text-h);
+  font-weight: 300;
+}
+
+h1 {
+  font-size: 56px;
+  margin: 32px 0;
+  @media (max-width: 1024px) {
+    font-size: 36px;
+    margin: 20px 0;
+  }
+}
+
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  margin: 0 0 8px;
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--font-mono);
+  display: inline-flex;
+  border-radius: var(--radius-sm);
+  color: var(--text-h);
+}
+
+code {
+  font-size: 15px;
+  line-height: 135%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--code-bg);
+}
+
+/* ── App shell layout ─────────────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  overflow: auto;
+}
+
+/* ── Shared card pattern (blur-card) ─────────────────────────────────────── */
+.blur-card {
+  background: var(--color-bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-2xl);
+  padding: var(--spacing-xl) var(--spacing-2xl);
+  backdrop-filter: var(--blur-card);
+}
+
+/* ── Utility classes ──────────────────────────────────────────────────────── */
+.agent-grid {
+  margin-top: var(--spacing-xl);
+}
+
+.d-flex {
+  display: flex;
+}
+
+.f-dir-col {
+  flex-direction: column;
+}
+
+.f-dir-row {
+  flex-direction: row;
+}
+
+.f-align-center {
+  align-items: center;
+}
+.f-justify-center {
+  justify-content: center;
+}
+
+.f-align-end {
+  align-items: flex-end;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.mr-5 {
+  margin-right: 5px;
+}
+
+.w-50 {
+  width: 50%;
+  padding: 0px 20px;
+  box-sizing: border-box;
+}

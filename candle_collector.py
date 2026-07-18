@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-candle_collector.py — Multi-timeframe OHLCV candle collector for BTC, ETH, SOL.
+candle_collector_hl.py — Multi-timeframe OHLCV candle collector for BTC, ETH, SOL.
 
-Fetches market data from CoinGecko and writes into the appropriate timeframe table:
-  5min  → trading_prices      (existing table, unchanged schema)
-  1h    → trading_prices_1h   (new)
-  4h    → trading_prices_4h   (new)
+Fetches market data from HyperLiquid (the exchange we trade on) and writes into tables:
+  5min  → trading_prices
+  1h    → trading_prices_1h
+  4h    → trading_prices_4h
 
 Usage:
-    python candle_collector.py --timeframe 5min
-    python candle_collector.py --timeframe 1h
-    python candle_collector.py --timeframe 4h   [--no-db] [--quiet] [--json]
+    python candle_collector_hl.py --timeframe 5min
+    python candle_collector_hl.py --timeframe 1h
+    python candle_collector_hl.py --timeframe 4h   [--no-db] [--quiet] [--json]
 
 Scheduled tasks:
     TradingCollect5min  — every 5  min
@@ -39,40 +39,37 @@ except ImportError:
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-COINS = {
-    "bitcoin":  "BTC",
-    "ethereum": "ETH",
-    "solana":   "SOL",
-}
-VS_CURRENCY   = "usd"
+# Import from unified config loader (loads from project .env)
+from config_loader import DB_CONFIG, COLLECTION_CONFIG
+
+COINS = ["BTC", "ETH", "SOL"]
+HL_API_URL = "https://api.hyperliquid.xyz/info"
+
 RSI_PERIOD    = 14
 FVG_LOOKBACK  = 50
 
-BASE              = "https://pro-api.coingecko.com/api/v3"
-COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
-
-# ── Per-timeframe config ──────────────────────────────────────────────────────
+# Map timeframe to HyperLiquid interval and candle count needed
 TF_CONFIG = {
     "5min": {
         "table":          "trading_prices",
-        "candle_days":    1,         # ~288 points at 5-min auto-granularity
-        "bucket_minutes": 5,
+        "hl_interval":    "5m",
+        "candle_count":   100,      # Need ~50 for RSI + FVG
         "rsi_period":     14,
-        "momentum_look":  10,        # candles back for momentum
+        "momentum_look":  10,
         "fvg_lookback":   50,
     },
     "1h": {
         "table":          "trading_prices_1h",
-        "candle_days":    7,         # 7 days → ~168 hourly points
-        "bucket_minutes": 60,
+        "hl_interval":    "1h",
+        "candle_count":   100,
         "rsi_period":     14,
         "momentum_look":  10,
         "fvg_lookback":   50,
     },
     "4h": {
         "table":          "trading_prices_4h",
-        "candle_days":    30,        # 30 days → ~180 4h points
-        "bucket_minutes": 240,
+        "hl_interval":    "4h",
+        "candle_count":   100,
         "rsi_period":     14,
         "momentum_look":  10,
         "fvg_lookback":   50,
@@ -80,11 +77,12 @@ TF_CONFIG = {
 }
 
 # ── DB Config ─────────────────────────────────────────────────────────────────
-DB_HOST     = os.environ.get("PGHOST",     "localhost")
-DB_PORT     = int(os.environ.get("PGPORT", "5432"))
-DB_USER     = os.environ.get("PGUSER",     "postgres")
-DB_PASSWORD = os.environ.get("PGPASSWORD", "1870506303979")
-DB_NAME     = os.environ.get("PGDATABASE", "postgres")
+# Use config from config_loader (loaded from project .env)
+DB_HOST     = DB_CONFIG["host"]
+DB_PORT     = DB_CONFIG["port"]
+DB_USER     = DB_CONFIG["user"]
+DB_PASSWORD = DB_CONFIG["password"]
+DB_NAME     = DB_CONFIG["dbname"]
 
 CREATE_TABLE_TEMPLATE = """
 CREATE TABLE IF NOT EXISTS {table} (
@@ -101,97 +99,120 @@ CREATE TABLE IF NOT EXISTS {table} (
     fvg_count       INT,
     fvg_data        JSONB,
     alert_triggered BOOLEAN DEFAULT FALSE,
-    raw_data        JSONB
+    raw_data        JSONB,
+    high_price      NUMERIC(20,8),
+    low_price       NUMERIC(20,8),
+    open_price      NUMERIC(20,8)
 );
-"""
-
-MIGRATE_5MIN_SQL = """
-ALTER TABLE trading_prices
-ADD COLUMN IF NOT EXISTS volume_5m NUMERIC(20,2);
 """
 
 INSERT_ROW_TEMPLATE = """
 INSERT INTO {table}
-    (captured_at, coin, price, change_24h, volume_24h, volume_candle, market_cap,
+    (captured_at, coin, price, change_24h, volume_24h, market_cap,
      rsi, momentum, fvg_count, fvg_data, alert_triggered, raw_data,
      high_price, low_price, open_price)
 VALUES
     (%(captured_at)s, %(coin)s, %(price)s, %(change_24h)s, %(volume_24h)s,
-     %(volume_candle)s, %(market_cap)s, %(rsi)s, %(momentum)s, %(fvg_count)s,
+     %(market_cap)s, %(rsi)s, %(momentum)s, %(fvg_count)s,
      %(fvg_data)s, %(alert_triggered)s, %(raw_data)s,
      %(high_price)s, %(low_price)s, %(open_price)s)
 """
 
-# ── HTTP helper ───────────────────────────────────────────────────────────────
-def fetch(url: str, max_retries: int = 4, backoff: float = 2.0) -> dict:
-    last_exc = None
-    headers = {"User-Agent": "Mozilla/5.0"}
-    if COINGECKO_API_KEY:
-        headers["x-cg-pro-api-key"] = COINGECKO_API_KEY
-    for attempt in range(max_retries):
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=30) as r:
-                return json.loads(r.read())
-        except urllib.error.HTTPError as e:
-            last_exc = e
-            if e.code == 429:
-                retry_after = int(e.headers.get("Retry-After", backoff * (2 ** attempt)))
-                time.sleep(min(retry_after, 60))
-            elif e.code in (500, 502, 503, 504):
-                time.sleep(backoff * (2 ** attempt))
-            else:
-                raise
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
-            last_exc = e
-            time.sleep(backoff * (2 ** attempt))
-    raise RuntimeError(f"fetch failed after {max_retries} attempts: {last_exc}") from last_exc
-
-# ── Spot prices ───────────────────────────────────────────────────────────────
-def fetch_spot() -> dict:
-    ids = ",".join(COINS.keys())
-    url = (
-        f"{BASE}/simple/price?ids={ids}"
-        f"&vs_currencies={VS_CURRENCY}"
-        f"&include_24hr_change=true"
-        f"&include_24hr_vol=true"
-        f"&include_market_cap=true"
+# ── HyperLiquid API helpers ───────────────────────────────────────────────────
+def hl_post(payload: dict) -> dict:
+    """POST request to HyperLiquid API."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        HL_API_URL,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
     )
-    return fetch(url)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
 
-# ── OHLCV candles ─────────────────────────────────────────────────────────────
-def fetch_candles(coin_id: str, days: int, bucket_minutes: int) -> list[dict]:
+def fetch_all_mids() -> dict:
+    """Fetch current mark prices for all coins."""
+    return hl_post({"type": "allMids"})
+
+def fetch_candles(coin: str, interval: str, count: int = 100) -> list[dict]:
     """
-    Fetch /market_chart and aggregate into OHLCV candles of bucket_minutes width.
-    For 1h/4h we request more days to get enough history for indicators.
+    Fetch candles from HyperLiquid.
+    Returns list of {t, T, s, i, o, c, h, l, v, n} candles.
     """
-    url = (f"{BASE}/coins/{coin_id}/market_chart"
-           f"?vs_currency={VS_CURRENCY}&days={days}")
-    raw = fetch(url)
-    prices  = raw.get("prices", [])
-    volumes = raw.get("total_volumes", [])
-    if not prices:
+    # Get candles - request more than needed to ensure we have enough history
+    # HL returns up to 5000 candles, we just need the last `count`
+    end_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+    start_time = end_time - (count * 2 * interval_to_ms(interval))
+    
+    result = hl_post({
+        "type": "candleSnapshot",
+        "req": {
+            "coin": coin,
+            "interval": interval,
+            "startTime": start_time,
+            "endTime": end_time
+        }
+    })
+    
+    # Result is a list of candles
+    if not isinstance(result, list):
         return []
+    
+    # Normalize to our expected format
+    candles = []
+    for c in result:
+        candles.append({
+            "t": c["t"],           # start time ms
+            "T": c["T"],           # end time ms
+            "o": float(c["o"]),    # open
+            "h": float(c["h"]),    # high
+            "l": float(c["l"]),    # low
+            "c": float(c["c"]),    # close
+            "v": float(c["v"]),    # volume
+            "n": c.get("n", 0),    # number of trades
+        })
+    
+    return candles
 
-    bucket_ms = bucket_minutes * 60 * 1000
-    buckets: dict[int, dict] = {}
+def interval_to_ms(interval: str) -> int:
+    """Convert HL interval string to milliseconds."""
+    mapping = {
+        "1m": 60 * 1000,
+        "5m": 5 * 60 * 1000,
+        "15m": 15 * 60 * 1000,
+        "1h": 60 * 60 * 1000,
+        "4h": 4 * 60 * 60 * 1000,
+        "1d": 24 * 60 * 60 * 1000,
+    }
+    return mapping.get(interval, 5 * 60 * 1000)
 
-    for ts_ms, price in prices:
-        bk = (ts_ms // bucket_ms) * bucket_ms
-        if bk not in buckets:
-            buckets[bk] = {"t": bk, "o": price, "h": price, "l": price, "c": price, "v": 0.0}
-        else:
-            b = buckets[bk]
-            b["h"] = max(b["h"], price)
-            b["l"] = min(b["l"], price)
-            b["c"] = price
-
-    for ts_ms, vol in volumes:
-        bk = (ts_ms // bucket_ms) * bucket_ms
-        if bk in buckets:
-            buckets[bk]["v"] += vol
-
-    return sorted(buckets.values(), key=lambda x: x["t"])
+def fetch_24h_volume(coin: str) -> float:
+    """Fetch 24h volume from HL metaAndAssetCtxs."""
+    try:
+        result = hl_post({"type": "metaAndAssetCtxs"})
+        # Result is [meta, asset_ctxs]
+        if len(result) < 2:
+            return 0.0
+        
+        meta = result[0]
+        asset_ctxs = result[1]
+        
+        # Find coin index in universe
+        universe = meta.get("universe", [])
+        coin_idx = None
+        for i, asset in enumerate(universe):
+            if asset.get("name") == coin:
+                coin_idx = i
+                break
+        
+        if coin_idx is not None and coin_idx < len(asset_ctxs):
+            ctx = asset_ctxs[coin_idx]
+            # dayNtlVlm is daily volume in USD
+            return float(ctx.get("dayNtlVlm", 0))
+    except Exception:
+        pass
+    return 0.0
 
 # ── Indicators ────────────────────────────────────────────────────────────────
 def compute_rsi(candles: list[dict], period: int = RSI_PERIOD) -> float | None:
@@ -222,6 +243,31 @@ def compute_momentum(candles: list[dict], lookback: int = 10) -> float | None:
     if old == 0:
         return None
     return round((now - old) / old * 100, 4)
+
+def compute_24h_change(candles: list[dict]) -> float | None:
+    """Compute 24h change % from candles if available."""
+    if len(candles) < 2:
+        return None
+    # Find candle closest to 24h ago
+    now_ms = datetime.now(timezone.utc).timestamp() * 1000
+    target_ms = now_ms - (24 * 60 * 60 * 1000)
+    
+    closest = None
+    closest_diff = float('inf')
+    for c in candles:
+        diff = abs(c["t"] - target_ms)
+        if diff < closest_diff:
+            closest_diff = diff
+            closest = c
+    
+    if closest is None:
+        return None
+    
+    current = candles[-1]["c"]
+    past = closest["c"]
+    if past == 0:
+        return None
+    return round((current - past) / past * 100, 4)
 
 def find_fvgs(candles: list[dict], lookback: int = FVG_LOOKBACK) -> list[dict]:
     recent = candles[-lookback:] if len(candles) >= lookback else candles
@@ -256,46 +302,16 @@ def get_db_conn():
         dbname=DB_NAME, connect_timeout=10,
     )
 
-def ensure_table(conn, table: str, is_5min: bool = False):
+def ensure_table(conn, table: str):
     with conn.cursor() as cur:
         cur.execute(CREATE_TABLE_TEMPLATE.format(table=table))
-        if is_5min:
-            # Legacy: keep volume_5m column alias on original table
-            cur.execute("""
-                ALTER TABLE trading_prices
-                ADD COLUMN IF NOT EXISTS volume_5m NUMERIC(20,2);
-            """)
-            # Add OHLC columns for 5min strategies (Momentum Scalper, etc.)
-            cur.execute("""
-                ALTER TABLE trading_prices
-                ADD COLUMN IF NOT EXISTS high_price NUMERIC(20,8),
-                ADD COLUMN IF NOT EXISTS low_price NUMERIC(20,8),
-                ADD COLUMN IF NOT EXISTS open_price NUMERIC(20,8);
-            """)
     conn.commit()
 
-def write_rows(conn, table: str, rows: list[dict], is_5min: bool = False):
+def write_rows(conn, table: str, rows: list[dict]):
     sql = INSERT_ROW_TEMPLATE.format(table=table)
     with conn.cursor() as cur:
         for row in rows:
-            if is_5min:
-                # 5min table now has OHLC columns - include them
-                row_5m = dict(row)
-                sql_5m = """
-                    INSERT INTO trading_prices
-                        (captured_at, coin, price, change_24h, volume_24h, volume_5m,
-                         market_cap, rsi, momentum, fvg_count, fvg_data,
-                         alert_triggered, raw_data, high_price, low_price, open_price)
-                    VALUES
-                        (%(captured_at)s, %(coin)s, %(price)s, %(change_24h)s,
-                         %(volume_24h)s, %(volume_candle)s, %(market_cap)s,
-                         %(rsi)s, %(momentum)s, %(fvg_count)s, %(fvg_data)s,
-                         %(alert_triggered)s, %(raw_data)s,
-                         %(high_price)s, %(low_price)s, %(open_price)s)
-                """
-                cur.execute(sql_5m, row_5m)
-            else:
-                cur.execute(sql, row)
+            cur.execute(sql, row)
     conn.commit()
 
 # ── Core collection ───────────────────────────────────────────────────────────
@@ -305,46 +321,56 @@ def collect(timeframe: str, quiet: bool = False, no_db: bool = False,
     table = cfg["table"]
     now_utc = datetime.now(tz=timezone.utc)
 
+    # Fetch current prices for all coins
     try:
-        spot = fetch_spot()
+        all_mids = fetch_all_mids()
     except Exception as e:
-        msg = f"ERROR fetching spot prices: {e}"
+        msg = f"ERROR fetching prices from HyperLiquid: {e}"
         print(msg, file=sys.stderr)
         sys.exit(1)
 
     results = {}
-    for coin_id, ticker in COINS.items():
-        s = spot[coin_id]
-        price  = s.get(VS_CURRENCY, 0.0)
-        change = s.get(f"{VS_CURRENCY}_24h_change", 0.0)
-        vol    = s.get(f"{VS_CURRENCY}_24h_vol", 0.0)
-        mcap   = s.get(f"{VS_CURRENCY}_market_cap", 0.0)
-        alert  = abs(change) >= alert_threshold
-
+    for coin in COINS:
+        price = float(all_mids.get(coin, 0))
+        
+        # Fetch candles for indicators
         try:
-            candles      = fetch_candles(coin_id, cfg["candle_days"], cfg["bucket_minutes"])
-            rsi          = compute_rsi(candles, cfg["rsi_period"])
-            momentum     = compute_momentum(candles, cfg["momentum_look"])
-            fvgs         = [] if quiet else find_fvgs(candles, cfg["fvg_lookback"])
-            vol_candle   = round(candles[-1]["v"], 2) if candles else None
-            # OHLC from latest candle (close = price from candle data)
+            candles = fetch_candles(coin, cfg["hl_interval"], cfg["candle_count"])
+            rsi = compute_rsi(candles, cfg["rsi_period"])
+            momentum = compute_momentum(candles, cfg["momentum_look"])
+            fvgs = [] if quiet else find_fvgs(candles, cfg["fvg_lookback"])
+            change_24h = compute_24h_change(candles)
+            
+            # Get volume from latest candle
+            vol_candle = round(candles[-1]["v"], 2) if candles else None
+            
+            # OHLC from latest candle
             last_candle = candles[-1] if candles else None
-            high_price  = round(last_candle["h"], 8) if last_candle else None
-            low_price   = round(last_candle["l"], 8) if last_candle else None
-            open_price  = round(last_candle["o"], 8) if last_candle else None
+            high_price = round(last_candle["h"], 8) if last_candle else None
+            low_price = round(last_candle["l"], 8) if last_candle else None
+            open_price = round(last_candle["o"], 8) if last_candle else None
         except Exception as e:
-            print(f"  [warn] {ticker} indicator fetch failed: {e}", file=sys.stderr)
-            candles, rsi, momentum, fvgs, vol_candle = [], None, None, [], None
+            print(f"  [warn] {coin} indicator fetch failed: {e}", file=sys.stderr)
+            candles, rsi, momentum, fvgs = [], None, None, []
+            change_24h, vol_candle = None, None
             high_price, low_price, open_price = None, None, None
+        
+        # Fetch 24h volume separately
+        try:
+            volume_24h = fetch_24h_volume(coin)
+        except Exception:
+            volume_24h = 0.0
+        
+        # Alert on significant moves
+        alert = abs(change_24h or 0) >= alert_threshold
 
-        results[ticker] = {
-            "coin_id":       coin_id,
-            "ticker":        ticker,
+        results[coin] = {
+            "ticker":        coin,
             "price":         price,
-            "change_24h":    round(change, 4),
-            "volume_24h":    vol,
+            "change_24h":    change_24h,
+            "volume_24h":    volume_24h,
             "volume_candle": vol_candle,
-            "market_cap":    mcap,
+            "market_cap":    None,  # HL doesn't provide market cap
             "rsi":           rsi,
             "momentum":      momentum,
             "fvg_count":     len(fvgs),
@@ -364,31 +390,29 @@ def collect(timeframe: str, quiet: bool = False, no_db: bool = False,
         else:
             try:
                 conn = get_db_conn()
-                is_5m = (timeframe == "5min")
-                ensure_table(conn, table, is_5min=is_5m)
+                ensure_table(conn, table)
 
                 db_rows = []
-                for ticker, r in results.items():
+                for coin, r in results.items():
                     db_rows.append({
                         "captured_at":   now_utc,
-                        "coin":          ticker,
+                        "coin":          coin,
                         "price":         r["price"],
                         "change_24h":    r["change_24h"],
                         "volume_24h":    r["volume_24h"],
-                        "volume_candle": r["volume_candle"],
                         "market_cap":    r["market_cap"],
                         "rsi":           r["rsi"],
                         "momentum":      r["momentum"],
                         "fvg_count":     r["fvg_count"],
                         "fvg_data":      json.dumps(r["fvg_data"]),
                         "alert_triggered": r["alert"],
-                        "raw_data":      json.dumps({"spot": spot.get(r["coin_id"], {})}),
+                        "raw_data":      json.dumps({"source": "hyperliquid", "price": r["price"], "volume_candle": r["volume_candle"]}),
                         "high_price":    r.get("high_price"),
                         "low_price":     r.get("low_price"),
                         "open_price":    r.get("open_price"),
                     })
 
-                write_rows(conn, table, db_rows, is_5min=is_5m)
+                write_rows(conn, table, db_rows)
                 conn.close()
                 db_ok = True
 
@@ -405,10 +429,8 @@ def collect(timeframe: str, quiet: bool = False, no_db: bool = False,
             "timestamp":    now_utc.isoformat(),
             "db_written":   db_ok,
             "db_error":     db_error,
-            "coins":        {
-                ticker: {k: v for k, v in r.items() if k not in ("coin_id",)}
-                for ticker, r in results.items()
-            },
+            "source":       "hyperliquid",
+            "coins":        results,
         }
         print(json.dumps(output, indent=2, default=str))
 
@@ -417,7 +439,7 @@ def collect(timeframe: str, quiet: bool = False, no_db: bool = False,
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Multi-timeframe candle collector")
+    parser = argparse.ArgumentParser(description="HyperLiquid candle collector")
     parser.add_argument("--timeframe", choices=["5min", "1h", "4h"], required=True,
                         help="Timeframe to collect: 5min | 1h | 4h")
     parser.add_argument("--quiet",  action="store_true", help="Skip FVG (faster)")

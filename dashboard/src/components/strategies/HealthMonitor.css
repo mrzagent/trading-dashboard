@@ -1,0 +1,128 @@
+.health-monitor {
+  background: var(--bg-secondary, #1a1a2e);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 2px solid transparent;
+}
+
+.health-monitor.status-healthy {
+  border-color: var(--color-accent);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.health-monitor.status-warning {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.health-monitor.status-error {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.health-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.health-title {
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.health-status {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+
+.health-status.status-healthy {
+  background: #10b981;
+  color: white;
+}
+
+.health-status.status-warning {
+  background: #f59e0b;
+  color: white;
+}
+
+.health-status.status-error {
+  background: #ef4444;
+  color: white;
+}
+
+.health-issues {
+  margin-bottom: 12px;
+}
+
+.health-issue {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.health-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.health-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.health-label {
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.health-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e5e7eb;
+}
+
+.health-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.health-refresh {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.health-refresh:hover {
+  background: #2563eb;
+}
+
+.health-timestamp {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.health-monitor.loading {
+  opacity: 0.7;
+  text-align: center;
+  padding: 30px;
+}

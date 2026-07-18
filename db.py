@@ -1,17 +1,12 @@
-import os
 from datetime import datetime, timezone
 
 import psycopg2
 import psycopg2.extras
-from decouple import config
 
-DEFAULTS = {
-    "dbname":   config("DB_NAME",      default="postgres"),
-    "user":     config("DB_USER",      default="postgres"),
-    "password": config("DB_PASSWORD",  default=""),
-    "host":     config("DB_HOST",      default="localhost"),
-    "port":     config("DB_PORT",      cast=int, default=5432),
-}
+# Import from unified config loader (loads from project .env)
+from config_loader import DB_CONFIG
+
+DEFAULTS = DB_CONFIG
 
 # Coins tracked across all strategies
 COINS = ["BTC", "ETH", "SOL"]

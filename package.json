@@ -1,0 +1,21 @@
+{
+  "name": "trading-dashboard",
+  "version": "1.0.0",
+  "description": "Unified trading system with dashboard - HyperLiquid trading bot with React dashboard",
+  "scripts": {
+    "install:all": "cd dashboard && npm install",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd dashboard/server && node index.js",
+    "client": "cd dashboard && npm run dev",
+    "build": "cd dashboard && npm run build",
+    "collect:5min": "python candle_collector_hl.py --timeframe 5min",
+    "collect:1h": "python candle_collector_hl.py --timeframe 1h",
+    "collect:4h": "python candle_collector_hl.py --timeframe 4h",
+    "orchestrator": "python orchestrator.py",
+    "test:config": "python config_loader.py",
+    "test:db": "python -c \"from db import get_conn; conn = get_conn(); print('DB OK'); conn.close()\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}

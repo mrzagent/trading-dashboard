@@ -37,7 +37,7 @@ ACCOUNT_SETTINGS_PATH = Path(__file__).parent / ".account_settings.json"
 def load_account_settings() -> dict:
     """Load account settings from .account_settings.json.
     
-    Returns dict with cooldown_minutes, allow_multiple_positions, leverage, position_size_pct, and environment.
+    Returns dict with trading_enabled, cooldown_minutes, allow_multiple_positions, leverage, position_size_pct, and environment.
     """
     try:
         if ACCOUNT_SETTINGS_PATH.exists():
@@ -48,6 +48,7 @@ def load_account_settings() -> dict:
             env_config = settings.get(env, {})
             
             return {
+                'trading_enabled': settings.get('tradingEnabled', False),
                 'cooldown_minutes': settings.get('cooldownMinutes', 30),
                 'allow_multiple_positions': settings.get('allowMultiplePositions', False),
                 'leverage': settings.get('leverage', 3),
@@ -63,6 +64,7 @@ def load_account_settings() -> dict:
         print(f"[orchestrator] Warning: Failed to load account settings: {e}", file=sys.stderr)
     
     return {
+        'trading_enabled': False,
         'cooldown_minutes': 30,
         'allow_multiple_positions': False,
         'leverage': 3,
@@ -369,6 +371,10 @@ def analyse(coin: str, conn, candle_start) -> dict:
 
 def main():
     """Main entry point - runs all strategies individually and executes trades per strategy."""
+    # Check if trading is enabled
+    account_settings = load_account_settings()
+    trading_enabled = account_settings.get('trading_enabled', False)
+    
     act, candle_start = should_act(ORCHESTRATOR_STRATEGY, CANDLE_MINUTES)
     if not act:
         print(json.dumps({
@@ -377,6 +383,18 @@ def main():
             "reason": "candle not closed yet",
             "candle": candle_start.isoformat()
         }))
+        return
+    
+    # If trading is disabled, skip signal generation and trading, but still collect data
+    if not trading_enabled:
+        print(json.dumps({
+            "orchestrator_run": datetime.now(timezone.utc).isoformat(),
+            "candle_start": candle_start.isoformat(),
+            "trading_enabled": False,
+            "status": "TRADING_DISABLED",
+            "message": "Trading is disabled. Price collection continues, but no signals generated or trades executed."
+        }))
+        mark_acted(ORCHESTRATOR_STRATEGY, candle_start)
         return
 
     conn = get_conn()

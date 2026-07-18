@@ -20,7 +20,7 @@ ACCOUNT_SETTINGS_PATH = Path(__file__).parent / ".account_settings.json"
 def load_account_settings() -> dict:
     """Load account settings from .account_settings.json.
     
-    Returns dict with cooldown_minutes, allow_multiple_positions, leverage, position_size_pct, and environment.
+    Returns dict with trading_enabled, cooldown_minutes, allow_multiple_positions, leverage, position_size_pct, and environment.
     """
     try:
         if ACCOUNT_SETTINGS_PATH.exists():
@@ -31,6 +31,7 @@ def load_account_settings() -> dict:
             env_config = settings.get(env, {})
             
             return {
+                'trading_enabled': settings.get('tradingEnabled', False),
                 'cooldown_minutes': settings.get('cooldownMinutes', 30),
                 'allow_multiple_positions': settings.get('allowMultiplePositions', False),
                 'leverage': settings.get('leverage', 3),
@@ -47,6 +48,7 @@ def load_account_settings() -> dict:
         logger.warning(f"Failed to load account settings: {e}")
     
     return {
+        'trading_enabled': False,
         'cooldown_minutes': 30,
         'allow_multiple_positions': False,
         'leverage': 3,
@@ -245,6 +247,13 @@ class SignalIntegrator:
         Returns:
             Trade result dict or None
         """
+        # Check if trading is enabled
+        account_settings = load_account_settings()
+        if not account_settings.get('trading_enabled', False):
+            logger.warning("Trading is disabled. Signal rejected.")
+            self.last_skip_reason = "trading_disabled"
+            return None
+        
         # Validate signal
         required = ['coin', 'action', 'confidence', 'strategy']
         for field in required:

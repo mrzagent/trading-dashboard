@@ -1,192 +1,216 @@
-# Trading System
+# Trading Dashboard
 
-Automated crypto trading system with 10 strategies running on HyperLiquid testnet.
+A unified trading system with real-time dashboard for HyperLiquid exchange.
+
+## Overview
+
+This project combines:
+- **Trading Engine**: Python-based automated trading system for HyperLiquid
+- **Dashboard**: React + Vite frontend with Express API server
+- **Data Collection**: Multi-timeframe OHLCV candle collection from HyperLiquid
+
+## Project Structure
+
+```
+trading-dashboard/
+├── .env                          # Configuration (database, API keys, trading params)
+├── config_loader.py              # Unified configuration loader
+├── candle_collector_hl.py        # HyperLiquid data collector (5min/1h/4h)
+├── orchestrator.py               # Trading strategy orchestrator
+├── trade_executor.py             # Order execution on HyperLiquid
+├── db.py                         # Database utilities
+├── strategy_registry.py          # Strategy metadata
+├── close_position.py             # Position closing utility
+├── get_positions_for_dashboard.py
+├── get_account_info.py
+├── ...
+├── dashboard/                    # React + Express dashboard
+│   ├── server/
+│   │   └── index.js              # Express API server
+│   ├── src/                      # React components
+│   ├── package.json
+│   └── ...
+└── package.json                  # Root package.json with unified scripts
+```
 
 ## Quick Start
 
-```bash
-# Run orchestrator (main entry point)
-python orchestrator.py
+### 1. Install Dependencies
 
-# Check positions
-python get_positions_for_dashboard.py
+```powershell
+cd D:\dev\trading-dashboard
 
-# Run backtest
-python backtests/run_backtest.py --strategy fvg --coin BTC --timeframe 15m
+# Install dashboard dependencies
+npm run install:all
+
+# Or manually:
+cd dashboard
+npm install
 ```
 
-## System Architecture
+### 2. Configure Environment
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Price Data     │────▶│   Strategies    │────▶│  Orchestrator   │
-│  (Binance)      │     │    (10 total)   │     │  (Aggregates)   │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-         │                                               │
-         │                                               ▼
-         │                                      ┌─────────────────┐
-         │                                      │ Signal Integrator│
-         │                                      │  (Filters/Exec)  │
-         │                                      └─────────────────┘
-         │                                               │
-         ▼                                               ▼
-┌─────────────────┐                           ┌─────────────────┐
-│   PostgreSQL    │                           │  Trade Executor │
-│   (signals)     │                           │  (HyperLiquid)  │
-└─────────────────┘                           └─────────────────┘
-```
+Edit `.env` file:
 
-## Folder Structure
+```env
+# Database
+DB_NAME=postgres
+DB_USER=postgres
+DB_PASSWORD=your_password
+DB_HOST=localhost
+DB_PORT=5432
 
-```
-D:\dev\trading\
-├── strategies/              # 10 strategy implementations
-│   ├── strategy_fvg.py
-│   ├── strategy_mean_reversion.py
-│   ├── strategy_momentum.py
-│   ├── strategy_momentum_accel.py
-│   ├── strategy_momentum_scalper.py
-│   ├── strategy_pullback_scalper.py
-│   ├── strategy_rsi.py
-│   ├── strategy_trend_breakout.py
-│   ├── strategy_volume.py
-│   └── strategy_vwap_reversion.py
-├── backtests/               # Backtesting framework
-│   ├── backtest_engine.py
-│   ├── run_backtest.py
-│   └── README.md
-├── data/                    # Binance OHLCV data
-├── logs/                    # Strategy logs
-├── signals/                 # Signal templates (example_signal.json)
-├── results/                 # Backtest results (empty)
-├── orchestrator.py          # Main entry point
-├── signal_integrator.py     # Signal filtering & execution
-├── trade_executor.py        # HyperLiquid order execution
-├── candle_collector.py      # Price data collection
-├── db.py                    # Database interface
-├── candle_gate.py           # Candle timing gate
-├── strategy_base.py         # Base strategy class
-├── strategy_registry.py     # Strategy discovery
-├── strategy_risk_config.py  # Risk parameters
-├── get_positions_for_dashboard.py  # Dashboard API
-├── get_account_info.py      # Account info
-├── generate_trading_report.py      # Reporting
-├── show_strategy_status.py  # Strategy status
-├── fetch_binance_5min.py    # Data fetching
-├── fetch_binance_historical.py
-└── README.md                # This file
+# HyperLiquid (testnet or mainnet)
+HYPERLIQUID_ENV=testnet
+HYPERLIQUID_TESTNET_PRIVATE_KEY=0x...
+HYPERLIQUID_TESTNET_WALLET=0x...
+
+# Trading Parameters
+REUBEN_AUTO_TRADE=true
+REUBEN_PORTFOLIO_PCT=0.02
+REUBEN_LEVERAGE=3
 ```
 
-## Core Components
+### 3. Test Configuration
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| **Orchestrator** | `orchestrator.py` | Runs all 10 strategies, aggregates signals |
-| **Signal Integrator** | `signal_integrator.py` | Filters signals, prevents stacking, executes trades |
-| **Trade Executor** | `trade_executor.py` | Places orders on HyperLiquid, manages SL/TP |
-| **Candle Collector** | `candle_collector.py` | Fetches price data from Binance |
-| **Database** | `db.py` | PostgreSQL interface for signals and prices |
+```powershell
+# Test config loading
+python config_loader.py
 
-## Strategies (10 Total)
-
-| Strategy | File | Timeframe | Style | Type |
-|----------|------|-----------|-------|------|
-| RSI Mean Reversion | `strategy_rsi.py` | 4h | swing | mean_reversion |
-| Momentum RSI | `strategy_momentum.py` | 1h | swing | trend_following |
-| FVG Proximity | `strategy_fvg.py` | 5min | scalp | mean_reversion |
-| Volume Spike | `strategy_volume.py` | 5min | scalp | breakout |
-| Trend Breakout | `strategy_trend_breakout.py` | 4h | swing | trend_following |
-| Mean Reversion | `strategy_mean_reversion.py` | 4h | swing | mean_reversion |
-| Momentum Acceleration | `strategy_momentum_accel.py` | 1h | swing | momentum |
-| VWAP Reversion | `strategy_vwap_reversion.py` | 5min | scalp | mean_reversion |
-| Momentum Scalper | `strategy_momentum_scalper.py` | 5min | scalp | momentum |
-| Pullback Scalper | `strategy_pullback_scalper.py` | 5min | scalp | mean_reversion |
-
-## Configuration Files
-
-| File | Purpose | Managed By |
-|------|---------|------------|
-| `.account_settings.json` | Cooldown, position sizing, leverage | Dashboard |
-| `.strategy_state.json` | Enable/disable strategies | Dashboard |
-| `.candle_gate.json` | Candle processing tracking | System |
-| `risk_config.json` | Risk parameters per strategy | Manual/Dashboard |
-| `trade_state.json` | Open positions | System |
-| `signal_trade_history.json` | Trade history | System |
-
-## Account Settings
-
-Default configuration in `.account_settings.json`:
-
-```json
-{
-  "cooldownMinutes": 30,
-  "allowMultiplePositions": false,
-  "positionSizePct": 2.0,
-  "leverage": 3,
-  "stopLoss": 5.0,
-  "takeProfit": 10.0
-}
+# Test database connection
+npm run test:db
 ```
 
-## Running the System
+### 4. Start Development
 
-### Manual Run
-```bash
-cd D:\dev\trading\npython orchestrator.py\n```\n\n### Check Positions\n```bash\npython get_positions_for_dashboard.py\n```\n\n### Generate Report\n```bash\npython generate_trading_report.py
+```powershell
+# Start both server and client (requires 'concurrently' package)
+npm run dev
+
+# Or start separately:
+npm run server    # API server on :3001
+npm run client    # Vite dev server on :5173
 ```
 
-## Backtesting
+### 5. Build for Production
 
-```bash
-cd D:\dev\trading\backtests\n\n# FVG strategy on BTC 15m\npython run_backtest.py --strategy fvg --coin BTC --timeframe 15m\n\n# Momentum on SOL 5m, last 30 days\npython run_backtest.py --strategy momentum --coin SOL --timeframe 5m --days 30
-
-# Mean reversion with custom risk
-python run_backtest.py --strategy mean_reversion --coin ETH --timeframe 15m --risk 0.01 --leverage 5
+```powershell
+npm run build
 ```
 
-## Data Flow
+## Data Collection
 
-1. **candle_collector.py** fetches OHLCV from Binance → saves to `data/`
-2. **orchestrator.py** runs every 5 minutes via cron
-3. Each strategy analyzes its timeframe and generates signals
-4. **signal_integrator.py** filters signals (cooldown, position check)\5. **trade_executor.py** places orders on HyperLiquid testnet
-6. SL/TP orders managed automatically
+The system collects data from HyperLiquid at multiple timeframes:
 
-## Key Features
+| Timeframe | Table | Schedule |
+|-----------|-------|----------|
+| 5min | `trading_prices` | Every 5 minutes |
+| 1h | `trading_prices_1h` | Every hour |
+| 4h | `trading_prices_4h` | Every 4 hours |
 
-- **Position Stacking Prevention**: Won't open multiple same-direction positions for same strategy type
-- **Cooldown**: 30 minutes between trades per coin
-- **Risk Management**: 2% risk per trade, 3x leverage
-- **SL/TP**: Automatic stop-loss and take-profit orders
-- **Dashboard Integration**: API endpoints for position/status reporting
-
-## Environment Variables
-
-```bash
-HYPERLIQUID_WALLET=0x...
-HYPERLIQUID_PRIVATE_KEY=0x...
+Run manually:
+```powershell
+python candle_collector_hl.py --timeframe 5min
 ```
 
-## Database
+Or set up Windows Scheduled Tasks (see `setup_scheduled_tasks.ps1`).
 
-PostgreSQL with tables:
-- `trading_prices` (5min OHLCV)
-- `trading_prices_1h` (1h OHLCV)
-- `trading_prices_4h` (4h OHLCV)
-- `trading_signals` (all signals)
+## Trading Strategies
 
-## Troubleshooting\n
-**No signals generated?**
-- Check `.candle_gate.json` for duplicate prevention
-- Verify strategies enabled in `.strategy_state.json`
+10 strategies run via the orchestrator:
 
-**Trades not executing?**
-- Check `trade_state.json` for open positions
-- Verify HyperLiquid credentials
+| Strategy | Timeframe | Style |
+|----------|-----------|-------|
+| rsi_mean_reversion | 4h | swing |
+| momentum_rsi | 1h | swing |
+| fvg_proximity | 5min | scalp |
+| volume_spike | 5min | scalp |
+| trend_breakout | 4h | swing |
+| mean_reversion | 4h | swing |
+| momentum_accel | 1h | swing |
+| vwap_reversion | 5min | scalp |
+| momentum_scalper | 5min | scalp |
+| pullback_scalper | 5min | scalp |
 
-**Position stacking?**
-- Fixed in `signal_integrator.py` — queries actual HyperLiquid positions
+## API Endpoints
 
-## GitHub Repo
+The dashboard server provides:
 
-https://github.com/mrzagent/trading-system
+- `GET /api/trading` - Latest prices and indicators
+- `GET /api/trading/config` - Data source configuration
+- `GET /api/trading/signals` - Trading signals
+- `GET /api/trading/positions` - Open positions
+- `GET /api/trading/health` - System health
+- `POST /api/trading/close-position` - Close a position
+- `GET /api/strategies` - Strategy metadata
+- `GET /api/agents` - Agent statuses
+
+## Configuration
+
+All configuration is in `.env`:
+
+| Variable | Description |
+|----------|-------------|
+| `DB_*` | PostgreSQL connection |
+| `HYPERLIQUID_ENV` | `testnet` or `mainnet` |
+| `HYPERLIQUID_*_PRIVATE_KEY` | Wallet private keys |
+| `HYPERLIQUID_*_WALLET` | Wallet addresses |
+| `REUBEN_*` | Trading parameters |
+| `COLLECTION_INTERVAL_MINUTES` | Data collection interval |
+
+## Changing Collection Interval
+
+To switch from 5min to 1min candles:
+
+1. Update `.env`:
+   ```env
+   COLLECTION_INTERVAL_MINUTES=1
+   ```
+
+2. Update `candle_collector_hl.py`:
+   ```python
+   "5min": {
+       "hl_interval": "1m",  # Change from "5m"
+       ...
+   }
+   ```
+
+3. Update Windows Scheduled Task to run every 1 minute
+
+4. Rebuild dashboard:
+   ```powershell
+   cd dashboard
+   npm run build
+   ```
+
+## Security
+
+- `.env` is in `.gitignore` - never commit it
+- Private keys are only used server-side
+- Dashboard only displays data, never exposes keys
+
+## Troubleshooting
+
+**Database connection failed:**
+```powershell
+# Check PostgreSQL is running
+# Verify credentials in .env
+python -c "from db import get_conn; conn = get_conn(); print('OK')"
+```
+
+**HyperLiquid connection failed:**
+```powershell
+# Test API connection
+python -c "from config_loader import get_hyperliquid_credentials; print(get_hyperliquid_credentials())"
+```
+
+**Dashboard not loading:**
+```powershell
+# Check both servers are running
+# API: http://localhost:3001/api/trading/config
+# Client: http://localhost:5173
+```
+
+## License
+
+Private - For personal use only.

@@ -21,6 +21,9 @@ from typing import List, Dict, Any
 import psycopg2
 import psycopg2.extras
 
+# Import from unified config loader (loads from project .env)
+from config_loader import DB_CONFIG
+
 # ── Config ────────────────────────────────────────────────────────────────────
 BINANCE_API = "https://api.binance.com/api/v3/klines"
 SYMBOL = "BTCUSDT"
@@ -32,14 +35,8 @@ YEARS_OF_DATA = 3
 END_TIME = int(datetime.now(timezone.utc).timestamp() * 1000)
 START_TIME = END_TIME - (YEARS_OF_DATA * 365 * 24 * 60 * 60 * 1000)
 
-# DB Config (from db.py pattern)
-DB_DEFAULTS = {
-    "dbname":   os.environ.get("DB_NAME",      "postgres"),
-    "user":     os.environ.get("DB_USER",      "postgres"),
-    "password": os.environ.get("DB_PASSWORD",  "1870506303979"),
-    "host":     os.environ.get("DB_HOST",      "localhost"),
-    "port":     int(os.environ.get("DB_PORT",  "5432")),
-}
+# DB Config from unified config loader
+DB_DEFAULTS = DB_CONFIG
 
 TABLE_NAME = "binance_btc_5min"
 DATA_DIR = r"D:\dev\trading\data"

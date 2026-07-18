@@ -1,0 +1,149 @@
+.sidebar {
+  width: 200px;
+  min-height: 100vh;
+  background: rgb(10 10 18 / 12%);
+  border-right: 1px solid rgb(255 255 255 / 24%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  transition: width var(--transition-base);
+  overflow: hidden;
+  flex-shrink: 0;
+  backdrop-filter: var(--blur-sidebar);
+}
+
+.sidebar--collapsed {
+  width: 56px;
+}
+
+.sidebar-toggle {
+  background: none;
+  border: none;
+  color: var(--color-text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  padding: var(--spacing-lg) 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.sidebar-nav {
+  list-style: none;
+  margin: var(--spacing-sm) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: 10px var(--spacing-lg);
+  color: var(--color-text-dim);
+  text-decoration: none;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-radius: 0;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-primary);
+}
+
+.sidebar-link.active {
+  background: var(--color-cyan-bg);
+  color: var(--color-cyan);
+  border-right: 2px solid var(--color-cyan);
+}
+
+.sidebar-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  filter: brightness(0.7);
+  transition: filter var(--transition-fast);
+}
+
+.sidebar-link:hover .sidebar-icon,
+.sidebar-link.active .sidebar-icon {
+  filter: brightness(1);
+}
+
+.sidebar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsed: center the icons */
+.sidebar--collapsed .sidebar-link {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+/* Sidebar footer with fullscreen button */
+.sidebar-footer {
+  margin-top: auto;
+  padding: var(--spacing-md) 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-fullscreen-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: 10px var(--spacing-lg);
+  background: none;
+  border: none;
+  color: var(--color-text-dim);
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  width: 100%;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.sidebar-fullscreen-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-primary);
+}
+
+.fullscreen-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.fullscreen-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsed: center the fullscreen button */
+.sidebar--collapsed .sidebar-fullscreen-btn {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.sidebar--collapsed .fullscreen-label {
+  display: none;
+}

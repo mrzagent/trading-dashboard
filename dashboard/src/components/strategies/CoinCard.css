@@ -1,0 +1,112 @@
+.coin-card {
+  border: 1px solid var(--color-border-card);
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  justify-content: start;
+  position: relative;
+  transition: all var(--transition-base);
+}
+
+.coin-card:hover {
+  background: var(--color-bg-subtle-hover);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.coin-card--alert {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.alert-badge {
+  position: absolute;
+  top: -8px;
+  right: var(--spacing-md);
+  background: linear-gradient(135deg, var(--color-warning), var(--color-amber));
+  color: #000;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-xl);
+  text-transform: uppercase;
+}
+
+.coin-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.coin-symbol {
+  font-size: 1.5rem;
+  margin-right: 5px;
+}
+
+.coin-symbol img {
+  width: 28px;
+  height: 28px;
+}
+
+.coin-name {
+  font-size: 1.1rem;
+  color: var(--color-text-primary);
+}
+
+.coin-price {
+  font-size: 1.5rem;
+  color: var(--color-text-primary);
+  text-align: left;
+  margin: 10px 0px;
+}
+
+.change-summary {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.change-badges {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.coin-meta {
+  display: flex;
+  gap: var(--spacing-lg);
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-border-faint);
+}
+
+.coin-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meta-label {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.meta-value {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.meta-value.rsi-high {
+  color: var(--color-negative);
+}
+
+.meta-value.rsi-low {
+  color: var(--color-positive);
+}
+
+.coin-time {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: auto;
+}
