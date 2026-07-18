@@ -1,64 +1,36 @@
 #!/usr/bin/env python3
-"""Fetch positions from Hyperliquid for dashboard with local trade metadata"""
+"""Fetch positions from Hyperliquid for dashboard with local trade metadata.
+
+With wallet separation, this fetches positions from BOTH swing and scalp wallets
+and merges them for dashboard display.
+"""
 import sys
 import os
 import threading
 import time
 from datetime import datetime
-sys.path.insert(0, r'D:\dev\trading')
+
+# Add trading directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from hyperliquid.info import Info
-from dotenv import load_dotenv
+from config_loader import get_swing_credentials, get_scalp_credentials, HYPERLIQUID_ENV
 import json
 
-def load_account_settings():
-    """Load account settings including environment and wallet addresses"""
+
+def load_local_trade_metadata(wallet_type: str = 'swing'):
+    """Load additional metadata from local trade_state.json for a specific wallet type."""
+    # Each wallet type has its own state file
+    state_file = f'trade_state_{wallet_type}.json'
     try:
-        settings_path = r'D:\dev\trading\.account_settings.json'
-        with open(settings_path, 'r') as f:
-            settings = json.load(f)
-        
-        env = settings.get('environment', 'testnet')
-        env_config = settings.get(env, {})
-        
-        return {
-            'environment': env,
-            'api_url': env_config.get('apiUrl', 'https://api.hyperliquid-testnet.xyz'),
-            'main_wallet': env_config.get('mainWalletAddress', env_config.get('walletAddress', ''))
-        }
-    except Exception as e:
-        print(f"Error loading account settings: {e}", file=sys.stderr)
-        return {
-            'environment': 'testnet',
-            'api_url': 'https://api.hyperliquid-testnet.xyz',
-            'main_wallet': '0x97c465489243175580fcDe624c2ef640c1897a00'
-        }
-
-# Load environment-specific settings
-account_settings = load_account_settings()
-ENVIRONMENT = account_settings['environment']
-BASE_URL = account_settings['api_url']
-MAIN_WALLET = account_settings['main_wallet'] or '0x97c465489243175580fcDe624c2ef640c1897a00'
-
-# Debug output to stderr (not stdout which needs to be valid JSON)
-# print(f"Using {ENVIRONMENT.upper()} environment: {BASE_URL}", file=sys.stderr)
-# print(f"Main wallet: {MAIN_WALLET}", file=sys.stderr)
-
-# Path to local trade state
-TRADE_STATE_PATH = r'D:\dev\trading\trade_state.json'
-
-result = {'positions': None, 'error': None}
-
-def load_local_trade_metadata():
-    """Load additional metadata from local trade_state.json"""
-    try:
-        if os.path.exists(TRADE_STATE_PATH):
-            with open(TRADE_STATE_PATH, 'r') as f:
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
                 state = json.load(f)
             return state.get('open_trades', {})
     except Exception as e:
-        print(f"Warning: Could not load trade state: {e}", file=sys.stderr)
+        print(f"Warning: Could not load trade state for {wallet_type}: {e}", file=sys.stderr)
     return {}
+
 
 def format_time(iso_time):
     """Format ISO timestamp to HH:MM:SS"""
@@ -71,14 +43,27 @@ def format_time(iso_time):
     except:
         return iso_time[:8] if len(str(iso_time)) > 8 else iso_time
 
-def fetch_positions():
+
+def fetch_positions_for_wallet(creds: dict, wallet_type: str) -> list:
+    """Fetch positions from a specific wallet.
+    
+    Args:
+        creds: Wallet credentials dict with 'wallet', 'api_url'
+        wallet_type: 'swing' or 'scalp'
+    
+    Returns:
+        List of position dicts with wallet_type field
+    """
+    positions = []
+    wallet_address = creds['wallet']
+    api_url = creds['api_url']
+    
     try:
-        # Load local metadata
-        local_trades = load_local_trade_metadata()
+        # Load local metadata for this wallet type
+        local_trades = load_local_trade_metadata(wallet_type)
         
-        info = Info(base_url=BASE_URL)
-        state = info.user_state(MAIN_WALLET)
-        positions = []
+        info = Info(base_url=api_url)
+        state = info.user_state(wallet_address)
         
         for pos in state.get('assetPositions', []):
             p = pos.get('position', {})
@@ -116,7 +101,7 @@ def fetch_positions():
             
             # Build position object with merged data
             position = {
-                'id': f'{coin}_LONG' if size > 0 else f'{coin}_SHORT',
+                'id': f'{coin}_{wallet_type.upper()}',
                 'coin': coin,
                 'side': 'LONG' if size > 0 else 'SHORT',
                 'size': abs(size),
@@ -139,28 +124,65 @@ def fetch_positions():
                 'marginRequired': local_trade.get('margin_required'),
                 'riskAmount': local_trade.get('risk_amount'),
                 'strategy': local_trade.get('strategy'),
+                # Wallet separation metadata
+                'walletType': wallet_type,
+                'walletAddress': wallet_address[:10] + '...' + wallet_address[-6:] if len(wallet_address) > 16 else wallet_address,
             }
             
             positions.append(position)
-        
-        result['positions'] = positions
+            
     except Exception as e:
-        result['error'] = str(e)
+        print(f"Error fetching positions for {wallet_type} wallet: {e}", file=sys.stderr)
+    
+    return positions
+
+
+def fetch_all_positions():
+    """Fetch positions from both swing and scalp wallets."""
+    all_positions = []
+    errors = []
+    
+    try:
+        # Get credentials for both wallets
+        swing_creds = get_swing_credentials()
+        scalp_creds = get_scalp_credentials()
+        
+        # Fetch from swing wallet
+        swing_positions = fetch_positions_for_wallet(swing_creds, 'swing')
+        all_positions.extend(swing_positions)
+        
+        # Fetch from scalp wallet
+        scalp_positions = fetch_positions_for_wallet(scalp_creds, 'scalp')
+        all_positions.extend(scalp_positions)
+        
+    except Exception as e:
+        errors.append(str(e))
+    
+    return all_positions, errors
+
+
+# Main execution
+result = {'positions': [], 'errors': []}
+
+
+def run_fetch():
+    positions, errors = fetch_all_positions()
+    result['positions'] = positions
+    result['errors'] = errors
+
 
 # Run fetch in a thread with timeout
-thread = threading.Thread(target=fetch_positions)
+thread = threading.Thread(target=run_fetch)
 thread.daemon = True
 thread.start()
-thread.join(timeout=8)  # 8 second timeout
+thread.join(timeout=10)  # 10 second timeout for both wallets
 
 if thread.is_alive():
     # Timeout - return empty
     print(json.dumps([]))
 else:
-    if result['error']:
-        print(json.dumps([]), file=sys.stderr)
-        print(json.dumps([]))
-    else:
-        print(json.dumps(result['positions'] or []))
+    if result['errors']:
+        print(f"Errors: {result['errors']}", file=sys.stderr)
+    print(json.dumps(result['positions']))
 
 sys.stdout.flush()
