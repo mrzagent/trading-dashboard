@@ -22,8 +22,11 @@ export default function RiskSummary({ account, onUpdateSettings }) {
     allowMultiplePositions: DEFAULT_ALLOW_MULTIPLE_POSITIONS,
     positionSizePct: DEFAULT_POSITION_SIZE_PCT,
     environment: DEFAULT_ENVIRONMENT,
-    mainWallet: "",
-    agentWallet: "",
+    // Wallet separation - 4 wallets total
+    swingMainWallet: "",
+    swingAgentWallet: "",
+    scalpMainWallet: "",
+    scalpAgentWallet: "",
   });
   const [saving, setSaving] = useState(false);
   const [editingWallets, setEditingWallets] = useState(false);
@@ -41,8 +44,11 @@ export default function RiskSummary({ account, onUpdateSettings }) {
           account.allowMultiplePositions ?? DEFAULT_ALLOW_MULTIPLE_POSITIONS,
         positionSizePct: account.positionSizePct ?? DEFAULT_POSITION_SIZE_PCT,
         environment: account.environment ?? DEFAULT_ENVIRONMENT,
-        mainWallet: account.mainWallet ?? "",
-        agentWallet: account.agentWallet ?? "",
+        // Wallet separation - 4 wallets total
+        swingMainWallet: account.swingMainWallet ?? "",
+        swingAgentWallet: account.swingAgentWallet ?? "",
+        scalpMainWallet: account.scalpMainWallet ?? "",
+        scalpAgentWallet: account.scalpAgentWallet ?? "",
       });
     }
   }, [account]);
@@ -84,13 +90,14 @@ export default function RiskSummary({ account, onUpdateSettings }) {
   const pnl24h = account?.pnl24h ?? null;
   const pnl7d = account?.pnl7d ?? null;
   const pnl30d = account?.pnl30d ?? null;
-  const mainWallet = account?.mainWallet || "";
-  const agentWallet = account?.agentWallet || "";
-  
   // Wallet separation - per-wallet balances
   const wallets = account?.wallets || {};
   const swingWallet = wallets?.swing || {};
   const scalpWallet = wallets?.scalp || {};
+  
+  // Legacy aliases for backward compatibility
+  const mainWallet = swingWallet?.mainWallet || "";
+  const agentWallet = swingWallet?.agentWallet || "";
 
   const accountTradingEnabled = account?.tradingEnabled ?? DEFAULT_TRADING_ENABLED;
   const accountLeverage = account?.leverage ?? DEFAULT_LEVERAGE;
@@ -113,8 +120,10 @@ export default function RiskSummary({ account, onUpdateSettings }) {
     localSettings.allowMultiplePositions !== accountAllowMultiplePositions ||
     localSettings.positionSizePct !== accountPositionSizePct ||
     localSettings.environment !== accountEnvironment ||
-    localSettings.mainWallet !== mainWallet ||
-    localSettings.agentWallet !== agentWallet;
+    localSettings.swingMainWallet !== (swingWallet?.mainWallet || "") ||
+    localSettings.swingAgentWallet !== (swingWallet?.agentWallet || "") ||
+    localSettings.scalpMainWallet !== (scalpWallet?.mainWallet || "") ||
+    localSettings.scalpAgentWallet !== (scalpWallet?.agentWallet || "");
 
   const formatPnl = (val) => {
     if (val === null || val === undefined) return "—";
@@ -155,25 +164,51 @@ export default function RiskSummary({ account, onUpdateSettings }) {
         <div className="wallets">
           {editingWallets ? (
             <>
-              <div className="wallet-row editable">
-                <span className="wallet-label">Swing</span>
-                <input
-                  type="text"
-                  className="wallet-input"
-                  value={localSettings.mainWallet}
-                  onChange={(e) => handleChange("mainWallet", e.target.value)}
-                  placeholder="0x..."
-                />
+              <div className="wallet-section">
+                <h4 className="wallet-section-title">SWING Wallets</h4>
+                <div className="wallet-row editable">
+                  <span className="wallet-label">Main</span>
+                  <input
+                    type="text"
+                    className="wallet-input"
+                    value={localSettings.swingMainWallet}
+                    onChange={(e) => handleChange("swingMainWallet", e.target.value)}
+                    placeholder="0x... (holds funds)"
+                  />
+                </div>
+                <div className="wallet-row editable">
+                  <span className="wallet-label">Agent</span>
+                  <input
+                    type="text"
+                    className="wallet-input"
+                    value={localSettings.swingAgentWallet}
+                    onChange={(e) => handleChange("swingAgentWallet", e.target.value)}
+                    placeholder="0x... (signs transactions)"
+                  />
+                </div>
               </div>
-              <div className="wallet-row editable">
-                <span className="wallet-label">Scalp</span>
-                <input
-                  type="text"
-                  className="wallet-input"
-                  value={localSettings.agentWallet}
-                  onChange={(e) => handleChange("agentWallet", e.target.value)}
-                  placeholder="0x..."
-                />
+              <div className="wallet-section">
+                <h4 className="wallet-section-title">SCALP Wallets</h4>
+                <div className="wallet-row editable">
+                  <span className="wallet-label">Main</span>
+                  <input
+                    type="text"
+                    className="wallet-input"
+                    value={localSettings.scalpMainWallet}
+                    onChange={(e) => handleChange("scalpMainWallet", e.target.value)}
+                    placeholder="0x... (holds funds)"
+                  />
+                </div>
+                <div className="wallet-row editable">
+                  <span className="wallet-label">Agent</span>
+                  <input
+                    type="text"
+                    className="wallet-input"
+                    value={localSettings.scalpAgentWallet}
+                    onChange={(e) => handleChange("scalpAgentWallet", e.target.value)}
+                    placeholder="0x... (signs transactions)"
+                  />
+                </div>
               </div>
               <button
                 className="wallet-edit-btn done"
@@ -184,25 +219,43 @@ export default function RiskSummary({ account, onUpdateSettings }) {
             </>
           ) : (
             <>
-              {/* Swing Wallet */}
-              <div className="wallet-row">
-                <span className="wallet-label">Swing</span>
-                <span className="wallet-addr" title={swingWallet.walletAddress || mainWallet}>
-                  {formatAddress(swingWallet.walletAddress || mainWallet)}
-                </span>
-                <span className="wallet-balance">
-                  ${(swingWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
+              {/* SWING Wallets */}
+              <div className="wallet-section">
+                <h4 className="wallet-section-title">SWING</h4>
+                <div className="wallet-row">
+                  <span className="wallet-label">Main</span>
+                  <span className="wallet-addr" title={swingWallet.mainWallet || swingWallet.walletAddress}>
+                    {formatAddress(swingWallet.mainWallet || swingWallet.walletAddress)}
+                  </span>
+                  <span className="wallet-balance">
+                    ${(swingWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="wallet-row">
+                  <span className="wallet-label">Agent</span>
+                  <span className="wallet-addr" title={swingWallet.agentWallet}>
+                    {formatAddress(swingWallet.agentWallet)}
+                  </span>
+                </div>
               </div>
-              {/* Scalp Wallet */}
-              <div className="wallet-row">
-                <span className="wallet-label">Scalp</span>
-                <span className="wallet-addr" title={scalpWallet.walletAddress || agentWallet}>
-                  {formatAddress(scalpWallet.walletAddress || agentWallet)}
-                </span>
-                <span className="wallet-balance">
-                  ${(scalpWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
+              {/* SCALP Wallets */}
+              <div className="wallet-section">
+                <h4 className="wallet-section-title">SCALP</h4>
+                <div className="wallet-row">
+                  <span className="wallet-label">Main</span>
+                  <span className="wallet-addr" title={scalpWallet.mainWallet || scalpWallet.walletAddress}>
+                    {formatAddress(scalpWallet.mainWallet || scalpWallet.walletAddress)}
+                  </span>
+                  <span className="wallet-balance">
+                    ${(scalpWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="wallet-row">
+                  <span className="wallet-label">Agent</span>
+                  <span className="wallet-addr" title={scalpWallet.agentWallet}>
+                    {formatAddress(scalpWallet.agentWallet)}
+                  </span>
+                </div>
               </div>
               <button
                 className="wallet-edit-btn"

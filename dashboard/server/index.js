@@ -358,8 +358,11 @@ app.post('/api/trading/account', async (req, res) => {
     // Write back
     await fsp.writeFile(riskConfigPath, JSON.stringify(updatedConfig, null, 2));
     
-    // Also update .env if wallet addresses changed
-    if (settings.mainWallet || settings.agentWallet) {
+    // Update .env with wallet addresses (4 wallets for swing/scalp separation)
+    const hasWalletChanges = settings.swingMainWallet || settings.swingAgentWallet || 
+                             settings.scalpMainWallet || settings.scalpAgentWallet;
+    
+    if (hasWalletChanges) {
       const envPath = path.join(PROJECT_ROOT, '.env');
       let envContent = '';
       try {
@@ -368,30 +371,60 @@ app.post('/api/trading/account', async (req, res) => {
         // File doesn't exist
       }
       
+      // Track which variables we've updated
+      const updated = {
+        swingMain: false,
+        swingAgent: false,
+        scalpMain: false,
+        scalpAgent: false
+      };
+      
       // Update or add wallet addresses in .env
       const envLines = envContent.split('\n');
       const newEnvLines = [];
-      let mainWalletUpdated = false;
-      let agentWalletUpdated = false;
       
       for (const line of envLines) {
-        if (line.startsWith('HYPERLIQUID_WALLET=') && settings.mainWallet) {
-          newEnvLines.push(`HYPERLIQUID_WALLET=${settings.mainWallet}`);
-          mainWalletUpdated = true;
-        } else if (line.startsWith('HYPERLIQUID_TESTNET_WALLET=') && settings.mainWallet) {
-          newEnvLines.push(`HYPERLIQUID_TESTNET_WALLET=${settings.mainWallet}`);
-          agentWalletUpdated = true;
+        if (line.startsWith('HYPERLIQUID_SWING_MAINNET_MAIN_WALLET=') && settings.swingMainWallet) {
+          newEnvLines.push(`HYPERLIQUID_SWING_MAINNET_MAIN_WALLET=${settings.swingMainWallet}`);
+          updated.swingMain = true;
+        } else if (line.startsWith('HYPERLIQUID_SWING_TESTNET_MAIN_WALLET=') && settings.swingMainWallet) {
+          newEnvLines.push(`HYPERLIQUID_SWING_TESTNET_MAIN_WALLET=${settings.swingMainWallet}`);
+        } else if (line.startsWith('HYPERLIQUID_SWING_MAINNET_AGENT_WALLET=') && settings.swingAgentWallet) {
+          newEnvLines.push(`HYPERLIQUID_SWING_MAINNET_AGENT_WALLET=${settings.swingAgentWallet}`);
+          updated.swingAgent = true;
+        } else if (line.startsWith('HYPERLIQUID_SWING_TESTNET_AGENT_WALLET=') && settings.swingAgentWallet) {
+          newEnvLines.push(`HYPERLIQUID_SWING_TESTNET_AGENT_WALLET=${settings.swingAgentWallet}`);
+        } else if (line.startsWith('HYPERLIQUID_SCALP_MAINNET_MAIN_WALLET=') && settings.scalpMainWallet) {
+          newEnvLines.push(`HYPERLIQUID_SCALP_MAINNET_MAIN_WALLET=${settings.scalpMainWallet}`);
+          updated.scalpMain = true;
+        } else if (line.startsWith('HYPERLIQUID_SCALP_TESTNET_MAIN_WALLET=') && settings.scalpMainWallet) {
+          newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_MAIN_WALLET=${settings.scalpMainWallet}`);
+        } else if (line.startsWith('HYPERLIQUID_SCALP_MAINNET_AGENT_WALLET=') && settings.scalpAgentWallet) {
+          newEnvLines.push(`HYPERLIQUID_SCALP_MAINNET_AGENT_WALLET=${settings.scalpAgentWallet}`);
+          updated.scalpAgent = true;
+        } else if (line.startsWith('HYPERLIQUID_SCALP_TESTNET_AGENT_WALLET=') && settings.scalpAgentWallet) {
+          newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_AGENT_WALLET=${settings.scalpAgentWallet}`);
         } else {
           newEnvLines.push(line);
         }
       }
       
-      // Add if not found
-      if (settings.mainWallet && !mainWalletUpdated) {
-        newEnvLines.push(`HYPERLIQUID_WALLET=${settings.mainWallet}`);
+      // Add any missing variables at the end
+      if (settings.swingMainWallet && !updated.swingMain) {
+        newEnvLines.push(`HYPERLIQUID_SWING_MAINNET_MAIN_WALLET=${settings.swingMainWallet}`);
+        newEnvLines.push(`HYPERLIQUID_SWING_TESTNET_MAIN_WALLET=${settings.swingMainWallet}`);
       }
-      if (settings.agentWallet && !agentWalletUpdated) {
-        newEnvLines.push(`HYPERLIQUID_TESTNET_WALLET=${settings.agentWallet}`);
+      if (settings.swingAgentWallet && !updated.swingAgent) {
+        newEnvLines.push(`HYPERLIQUID_SWING_MAINNET_AGENT_WALLET=${settings.swingAgentWallet}`);
+        newEnvLines.push(`HYPERLIQUID_SWING_TESTNET_AGENT_WALLET=${settings.swingAgentWallet}`);
+      }
+      if (settings.scalpMainWallet && !updated.scalpMain) {
+        newEnvLines.push(`HYPERLIQUID_SCALP_MAINNET_MAIN_WALLET=${settings.scalpMainWallet}`);
+        newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_MAIN_WALLET=${settings.scalpMainWallet}`);
+      }
+      if (settings.scalpAgentWallet && !updated.scalpAgent) {
+        newEnvLines.push(`HYPERLIQUID_SCALP_MAINNET_AGENT_WALLET=${settings.scalpAgentWallet}`);
+        newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_AGENT_WALLET=${settings.scalpAgentWallet}`);
       }
       
       await fsp.writeFile(envPath, newEnvLines.join('\n'));

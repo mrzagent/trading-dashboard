@@ -38,20 +38,21 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
     """Fetch account info for a specific wallet.
     
     Args:
-        creds: Wallet credentials dict with 'wallet', 'api_url'
+        creds: Wallet credentials dict with 'main_wallet', 'agent_wallet', 'api_url'
         wallet_type: 'swing' or 'scalp'
     
     Returns:
         Account info dict for this wallet
     """
-    wallet_address = creds['wallet']
+    main_wallet = creds.get('main_wallet', creds.get('wallet', ''))
+    agent_wallet = creds.get('agent_wallet', creds.get('wallet', ''))
     api_url = creds['api_url']
     
     try:
         info = Info(base_url=api_url)
         
-        # Get account state (perp account)
-        state = info.user_state(wallet_address)
+        # Get account state (perp account) - use main wallet for balance
+        state = info.user_state(main_wallet)
         
         # Get margin summary
         margin_summary = state.get('marginSummary', {})
@@ -99,7 +100,10 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
         
         return {
             'walletType': wallet_type,
-            'walletAddress': wallet_address[:10] + '...' + wallet_address[-6:] if len(wallet_address) > 16 else wallet_address,
+            'mainWallet': main_wallet,
+            'agentWallet': agent_wallet,
+            'mainWalletDisplay': main_wallet[:10] + '...' + main_wallet[-6:] if len(main_wallet) > 16 else main_wallet,
+            'agentWalletDisplay': agent_wallet[:10] + '...' + agent_wallet[-6:] if len(agent_wallet) > 16 else agent_wallet,
             'balance': account_value,
             'deployedCapital': deployed,
             'available': account_value - total_margin_used,
@@ -113,7 +117,10 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
         print(f"Error fetching account info for {wallet_type}: {e}", file=sys.stderr)
         return {
             'walletType': wallet_type,
-            'walletAddress': wallet_address[:10] + '...' + wallet_address[-6:] if len(wallet_address) > 16 else wallet_address,
+            'mainWallet': main_wallet,
+            'agentWallet': agent_wallet,
+            'mainWalletDisplay': main_wallet[:10] + '...' + main_wallet[-6:] if len(main_wallet) > 16 else main_wallet,
+            'agentWalletDisplay': agent_wallet[:10] + '...' + agent_wallet[-6:] if len(agent_wallet) > 16 else agent_wallet,
             'balance': 0,
             'deployedCapital': 0,
             'available': 0,

@@ -178,13 +178,27 @@
 
 .wallets {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-md);
 }
 
-.wallets div {
-  margin: 0px 10px;
+.wallet-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-card);
+}
+
+.wallet-section-title {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  margin: 0 0 var(--spacing-xs) 0;
+  letter-spacing: 0.5px;
 }
 
 .wallet-row {
