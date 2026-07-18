@@ -3,7 +3,6 @@ import "./Strategies.css";
 import {
   Countdown,
   HistoryTabs,
-  PositionsTable,
   SignalsList,
   StrategyCard,
   TradeExecutionPipeline,
@@ -382,8 +381,7 @@ export default function Strategies() {
   const [priceLoading, setPriceLoading] = useState(true);
   const [priceError, setPriceError] = useState(null);
 
-  // Positions and signals state
-  const [positions, setPositions] = useState([]);
+  // Signals state
   const [signals, setSignals] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState(null);
@@ -506,25 +504,14 @@ export default function Strategies() {
     }
   }, []);
 
-  // Fetch positions and signals data
-  const fetchPositionsAndSignals = useCallback(async () => {
+  // Fetch signals data
+  const fetchSignals = useCallback(async () => {
     try {
       setDataLoading(true);
-      const [positionsRes, signalsRes] = await Promise.all([
-        fetch("http://localhost:3001/api/trading/positions"),
-        fetch("http://localhost:3001/api/trading/signals?limit=10"),
-      ]);
-
-      if (positionsRes.ok) {
-        const posData = await positionsRes.json();
-        // Handle new format {environment, positions} or old array format
-        const positionsArray = posData.positions || posData.value || posData;
-        setPositions(Array.isArray(positionsArray) ? positionsArray : []);
-      }
-
-      if (signalsRes.ok) {
-        const sigData = await signalsRes.json();
-        setSignals(sigData);
+      const res = await fetch("http://localhost:3001/api/trading/signals?limit=10");
+      if (res.ok) {
+        const data = await res.json();
+        setSignals(data);
       }
       setDataError(null);
     } catch (err) {
@@ -537,8 +524,8 @@ export default function Strategies() {
   // Initial data fetch
   useEffect(() => {
     fetchPriceData();
-    fetchPositionsAndSignals();
-  }, [fetchPriceData, fetchPositionsAndSignals]);
+    fetchSignals();
+  }, [fetchPriceData, fetchSignals]);
 
   // Polling for price data (every 5 seconds, but only fetch at window boundaries)
   useEffect(() => {
@@ -606,16 +593,6 @@ export default function Strategies() {
               />
             ))}
         </div>
-      </div>
-
-      {/* Open Positions */}
-      <div className="strategies-section">
-        <h2 className="section-title">
-          Open Positions
-          {dataLoading && <span className="meta-loading"> · Loading...</span>}
-          {dataError && <span className="meta-error"> · Error</span>}
-        </h2>
-        <PositionsTable positions={positions} />
       </div>
 
       {/* Trade Execution Pipeline */}
