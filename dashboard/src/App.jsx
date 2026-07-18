@@ -3,7 +3,6 @@ import Sidebar from "./components/Sidebar";
 import Home from "./pages/Home";
 import Agents from "./pages/Agents";
 import Strategies from "./pages/Strategies";
-import Stats from "./pages/Stats";
 import "./App.css";
 
 export default function App() {
@@ -16,7 +15,6 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/strategies" element={<Strategies />} />
-            <Route path="/stats" element={<Stats />} />
           </Routes>
         </main>
       </div>

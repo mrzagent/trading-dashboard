@@ -1819,65 +1819,6 @@ app.get('/api/trading/status', async (req, res) => {
   }
 });
 
-// GET /api/trading/strategy-stats - get win rate and trade count per strategy
-app.get('/api/trading/strategy-stats', async (req, res) => {
-  try {
-    // Try to read from performance file or calculate from database
-    const statsPath = path.join('D:', 'dev', 'trading', '.strategy_stats.json');
-    let stats = {
-      "fvg_proximity": { winRate: 0, trades: 0, avgRR: 0 },
-      "momentum_rsi": { winRate: 0, trades: 0, avgRR: 0 },
-      "rsi_mean_reversion": { winRate: 0, trades: 0, avgRR: 0 },
-      "volume_spike": { winRate: 0, trades: 0, avgRR: 0 },
-    };
-    
-    try {
-      const data = await fsp.readFile(statsPath, 'utf8');
-      const fileStats = JSON.parse(data);
-      
-      // Merge with defaults
-      stats = { ...stats, ...fileStats };
-    } catch (e) {
-      // File doesn't exist, return defaults
-    }
-    
-    // Also try to calculate from database if available
-    try {
-      const result = await tradingPool.query(`
-        SELECT 
-          strategy_id,
-          COUNT(*) as total_trades,
-          SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
-          AVG(CASE WHEN pnl > 0 THEN pnl ELSE NULL END) / NULLIF(AVG(CASE WHEN pnl < 0 THEN ABS(pnl) ELSE NULL END), 0) as avg_rr
-        FROM trades 
-        WHERE created_at > NOW() - INTERVAL '30 days'
-        GROUP BY strategy_id
-      `);
-      
-      for (const row of result.rows) {
-        const strategyId = row.strategy_id;
-        const total = parseInt(row.total_trades) || 0;
-        const wins = parseInt(row.winning_trades) || 0;
-        const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
-        const avgRR = row.avg_rr ? parseFloat(row.avg_rr).toFixed(1) : 0;
-        
-        if (stats[strategyId]) {
-          stats[strategyId].winRate = winRate;
-          stats[strategyId].trades = total;
-          stats[strategyId].avgRR = avgRR;
-        }
-      }
-    } catch (e) {
-      // Database query failed, use file stats only
-    }
-    
-    res.json(stats);
-  } catch (err) {
-    console.error('Strategy stats fetch error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // GET /api/strategies - return strategy metadata from strategy_registry.py
 app.get('/api/strategies', (req, res) => {
   try {

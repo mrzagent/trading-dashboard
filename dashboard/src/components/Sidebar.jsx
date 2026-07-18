@@ -10,7 +10,6 @@ const NAV_ITEMS = [
   { icon: homeIcon, label: "Home", to: "/" },
   { icon: agentsIcon, label: "Agents", to: "/agents" },
   { icon: tradeIcon, label: "Strategies", to: "/strategies" },
-  { icon: settingsIcon, label: "Stats", to: "/stats" },
 ];
 
 export default function Sidebar() {
