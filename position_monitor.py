@@ -7,24 +7,24 @@ import asyncio
 import threading
 import time
 from datetime import datetime
-sys.path.insert(0, r'D:\dev\trading')
+sys.path.insert(0, r'D:\dev\trading-dashboard')
 
 from hyperliquid.info import Info
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv(r'D:\dev\trading\.env')
+load_dotenv(r'D:\dev\trading-dashboard\.env')
 
 # Paths
-TRADE_STATE_PATH = r'D:\dev\trading\trade_state.json'
-POSITION_STATE_PATH = r'D:\dev\trading\.position_state.json'
+TRADE_STATE_PATH = r'D:\dev\trading-dashboard\trade_state.json'
+POSITION_STATE_PATH = r'D:\dev\trading-dashboard\.position_state.json'
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 def load_account_settings():
     """Load account settings including environment and wallet addresses"""
     try:
-        settings_path = r'D:\dev\trading\.account_settings.json'
+        settings_path = r'D:\dev\trading-dashboard\.account_settings.json'
         with open(settings_path, 'r') as f:
             settings = json.load(f)
         
