@@ -97,7 +97,7 @@ export default function Home() {
         <h2 className="section-title">Market Overview</h2>
         <div className="market-grid">
           {prices.map((coin) => (
-            <CoinCard key={coin.coin} data={coin} />
+            <CoinCard key={coin.coin} row={coin} />
           ))}
         </div>
       </section>
