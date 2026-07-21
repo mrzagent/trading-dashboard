@@ -67,6 +67,7 @@ Thumbs.db
 # Trading specific
 trade_state.json
 *.state.json
+risk_config.json
 backups/
 data/
 !data/.gitkeep

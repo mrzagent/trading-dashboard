@@ -9,7 +9,7 @@
   "environment": "testnet",
   "testnet": {
     "apiUrl": "https://api.hyperliquid-testnet.xyz",
-    "walletAddress": "0x7A082AEe3A8c69b3935792B6f23c2EA2da460431",
+    "walletAddress": "0xc6eCC37891846363607DF537F94968Dfc23e969F",
     "mainWalletAddress": "0x97c465489243175580fcDe624c2ef640c1897a00",
     "privateKeyEnv": "HYPERLIQUID_SWING_TESTNET_AGENT_PRIVATE_KEY"
   },
@@ -19,5 +19,5 @@
     "mainWalletAddress": "0x97c465489243175580fcDe624c2ef640c1897a00",
     "privateKeyEnv": "HYPERLIQUID_SWING_MAINNET_AGENT_PRIVATE_KEY"
   },
-  "updatedAt": "2026-07-18T23:16:00.000Z"
+  "updatedAt": "2026-07-21T10:44:55.235Z"
 }

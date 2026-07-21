@@ -1,16 +1,16 @@
 TRADING REPORT
-Tuesday, July 21 - 08:03 (Bucharest)
+Tuesday, July 21 - 13:14 (Bucharest)
 
-BTC $65,498
-ETH $1,924
-SOL $78.17
+BTC $66,312
+ETH $1,944
+SOL $78.36
 
 Latest Signals (Last Hour)
-BTC | SELL @ 100% | volume_spike
-ETH | SELL @ 74% | fvg_proximity
-SOL | SELL @ 50% | fvg_proximity
+BTC | BUY @ 34% | trend_breakout
+ETH | SELL @ 68% | rsi_mean_reversion
+SOL | BUY @ 100% | volume_spike
 
 Open Positions: 3
-SOL | short | 3x | $74.00 | PnL - $2.76
-ETH | long | 3x | $1,591 | PnL - $10.80
-BTC | long | 3x | $60,555 | PnL - $4.10
+SOL | short | 3x | $74.00 | PnL - $2.93
+ETH | long | 3x | $1,591 | PnL - $11.44
+BTC | long | 3x | $60,555 | PnL - $4.78

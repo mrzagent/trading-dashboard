@@ -36,11 +36,11 @@
   "allowMultiplePositions": false,
   "positionSizePct": 2,
   "environment": "testnet",
-  "swingMainWallet": "",
-  "swingAgentWallet": "",
-  "swingAgentPrivateKey": "0x5dc4eea052a2eac43ce453bbb116ae6c9f8a87daf3ccb455064cb9d0dbe62906",
-  "scalpMainWallet": "",
-  "scalpAgentWallet": "",
-  "scalpAgentPrivateKey": "0x5dc4eea052a2eac43ce453bbb116ae6c9f8a87daf3ccb455064cb9d0dbe62906",
-  "updatedAt": "2026-07-18T20:23:58.734Z"
+  "swingMainWallet": "0x97c465489243175580fcDe624c2ef640c1897a00",
+  "swingAgentWallet": "0xc6eCC37891846363607DF537F94968Dfc23e969F",
+  "swingAgentPrivateKey": "",
+  "scalpMainWallet": "0x89823A4f85cc8ef3A5574E8a56741A7b4562f288",
+  "scalpAgentWallet": "0xee46b825D3E1c6880a5e0FC2d5be82fFb13FD433",
+  "scalpAgentPrivateKey": "",
+  "updatedAt": "2026-07-21T10:44:55.234Z"
 }

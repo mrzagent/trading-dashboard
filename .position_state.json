@@ -1,26 +1,15 @@
 {
   "positions": {
-    "SOL": {
-      "coin": "SOL",
-      "side": "LONG",
-      "size": 0.79,
-      "entry_price": 76.192,
-      "mark_price": 78.053,
-      "unrealized_pnl": 1.47019,
+    "ETH": {
+      "coin": "ETH",
+      "side": "SHORT",
+      "size": 0.0262,
+      "entry_price": 1942.9,
+      "mark_price": 1942.9999999999998,
+      "unrealized_pnl": -0.00262,
       "stop_loss": null,
       "take_profit": null,
-      "position_value": 61.66187
-    },
-    "BTC": {
-      "coin": "BTC",
-      "side": "LONG",
-      "size": 0.00093,
-      "entry_price": 64277.0,
-      "mark_price": 65460.99999999999,
-      "unrealized_pnl": 1.10112,
-      "stop_loss": null,
-      "take_profit": null,
-      "position_value": 60.87873
+      "position_value": 50.9066
     }
   },
   "alerts_sent": [
@@ -113,6 +102,9 @@
     "close_ETH_14:31",
     "sl_hit_SOL_17:11",
     "sl_hit_SOL_17:21",
-    "sl_hit_SOL_17:51"
+    "sl_hit_SOL_17:51",
+    "close_BTC_13:10",
+    "close_SOL_13:10",
+    "open_ETH_13:45"
   ]
 }

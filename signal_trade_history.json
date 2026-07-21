@@ -2030,5 +2030,21 @@
     "confidence": 0.53,
     "strategy": "fvg_proximity",
     "timestamp": "2026-07-20T14:05:16.661198"
+  },
+  {
+    "coin": "ETH",
+    "action": "SELL",
+    "side": "short",
+    "entry_price": 1937.75,
+    "position_size": 0.0262,
+    "position_value": 50.76905,
+    "margin_required": 16.923016666666665,
+    "leverage": 3,
+    "stop_loss": 1995.9,
+    "take_profit": 1821.5,
+    "risk_amount": 11.436091176640002,
+    "confidence": 0.676,
+    "strategy": "rsi_mean_reversion",
+    "timestamp": "2026-07-21T13:45:21.636794"
   }
 ]
