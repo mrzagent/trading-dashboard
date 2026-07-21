@@ -28,5 +28,19 @@
   "max_open_positions": 3,
   "commission_pct": 0.001,
   "slippage_pct": 0.0005,
-  "leverage": 3
+  "leverage": 3,
+  "tradingEnabled": true,
+  "stopLoss": 5,
+  "takeProfit": 3,
+  "cooldownMinutes": 30,
+  "allowMultiplePositions": false,
+  "positionSizePct": 2,
+  "environment": "testnet",
+  "swingMainWallet": "",
+  "swingAgentWallet": "",
+  "swingAgentPrivateKey": "0x5dc4eea052a2eac43ce453bbb116ae6c9f8a87daf3ccb455064cb9d0dbe62906",
+  "scalpMainWallet": "",
+  "scalpAgentWallet": "",
+  "scalpAgentPrivateKey": "0x5dc4eea052a2eac43ce453bbb116ae6c9f8a87daf3ccb455064cb9d0dbe62906",
+  "updatedAt": "2026-07-18T20:23:58.734Z"
 }

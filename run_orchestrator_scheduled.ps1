@@ -1,11 +1,14 @@
-# Trading 1h Data Collection - HyperLiquid
+#!/usr/bin/env pwsh
+# Trading Orchestrator - Scheduled Task Runner
+# Runs the orchestrator with proper error handling and logging
+
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$logFile = "$scriptDir\logs\collector_1h.log"
+$scriptDir = "D:\dev\trading-dashboard"
+$logFile = "$scriptDir\logs\orchestrator.log"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-# Ensure log directory exists
+# Ensure logs directory exists
 $logDir = Split-Path -Parent $logFile
 if (-not (Test-Path $logDir)) {
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
@@ -13,17 +16,17 @@ if (-not (Test-Path $logDir)) {
 
 function Write-Log($message, $level = "INFO") {
     $logEntry = "$timestamp [$level] $message"
-    Write-Host $logEntry
-    $logEntry | Out-File -FilePath $logFile -Append
+    Add-Content -Path $logFile -Value $logEntry
 }
+
+Write-Log "Starting orchestrator..."
 
 try {
     Set-Location $scriptDir
-    Write-Log "Starting 1h candle collection..."
     
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "python"
-    $psi.Arguments = "candle_collector.py --timeframe 1h --quiet"
+    $psi.Arguments = "orchestrator.py"
     $psi.WorkingDirectory = $scriptDir
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -35,17 +38,18 @@ try {
     $process.WaitForExit()
     
     if ($stdout) {
-        Write-Log "Output: $stdout"
+        Add-Content -Path $logFile -Value $stdout
     }
     if ($stderr) {
-        Write-Log "Stderr: $stderr" "WARN"
+        Add-Content -Path $logFile -Value "ERROR: $stderr"
     }
     
     if ($process.ExitCode -eq 0) {
-        Write-Log "Collection completed successfully"
+        Write-Log "Orchestrator completed successfully"
     } else {
-        Write-Log "Collection failed with exit code $($process.ExitCode)" "ERROR"
+        Write-Log "Orchestrator failed with exit code $($process.ExitCode)" "ERROR"
     }
 } catch {
-    Write-Log "ERROR: $_" "ERROR"
+    Write-Log "Exception: $_" "ERROR"
+    exit 1
 }

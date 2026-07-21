@@ -17,49 +17,66 @@ logger = logging.getLogger(__name__)
 # Path to account settings (managed by dashboard)
 ACCOUNT_SETTINGS_PATH = Path(__file__).parent / ".account_settings.json"
 
+# Path to risk config (also managed by dashboard - newer format)
+RISK_CONFIG_PATH = Path(__file__).parent / "risk_config.json"
+
 
 def load_account_settings() -> dict:
-    """Load account settings from .account_settings.json.
+    """Load account settings from .account_settings.json or risk_config.json.
     
     Returns dict with trading_enabled, cooldown_minutes, allow_multiple_positions, leverage, position_size_pct, and environment.
     """
+    settings = {}
+    source = None
+    
+    # Try .account_settings.json first (legacy format)
     try:
         if ACCOUNT_SETTINGS_PATH.exists():
             with open(ACCOUNT_SETTINGS_PATH, 'r') as f:
                 settings = json.load(f)
-            
-            env = settings.get('environment', 'testnet')
-            env_config = settings.get(env, {})
-            
-            return {
-                'trading_enabled': settings.get('tradingEnabled', False),
-                'cooldown_minutes': settings.get('cooldownMinutes', 30),
-                'allow_multiple_positions': settings.get('allowMultiplePositions', False),
-                'leverage': settings.get('leverage', 3),
-                'stop_loss': settings.get('stopLoss', 5),
-                'take_profit': settings.get('takeProfit', 10),
-                'position_size_pct': settings.get('positionSizePct', 2.0),
-                'environment': env,
-                'api_url': env_config.get('apiUrl', 'https://api.hyperliquid-testnet.xyz'),
-                'wallet_address': env_config.get('walletAddress', ''),
-                'main_wallet_address': env_config.get('mainWalletAddress', env_config.get('walletAddress', '')),
-                'private_key_env': env_config.get('privateKeyEnv', 'HYPERLIQUID_TESTNET_PRIVATE_KEY')
-            }
+                source = '.account_settings.json'
     except Exception as e:
-        logger.warning(f"Failed to load account settings: {e}")
+        logger.warning(f"Failed to load .account_settings.json: {e}")
+    
+    # Fallback to risk_config.json (newer format used by dashboard)
+    if not settings and RISK_CONFIG_PATH.exists():
+        try:
+            with open(RISK_CONFIG_PATH, 'r') as f:
+                risk_config = json.load(f)
+                # Map risk_config fields to account settings format
+                settings = {
+                    'tradingEnabled': risk_config.get('tradingEnabled', False),
+                    'cooldownMinutes': risk_config.get('cooldownMinutes', 30),
+                    'allowMultiplePositions': risk_config.get('allowMultiplePositions', False),
+                    'leverage': risk_config.get('leverage', 3),
+                    'stopLoss': risk_config.get('stopLoss', 5),
+                    'takeProfit': risk_config.get('takeProfit', 3),
+                    'positionSizePct': risk_config.get('positionSizePct', 2.0),
+                    'environment': risk_config.get('environment', 'testnet'),
+                }
+                source = 'risk_config.json'
+        except Exception as e:
+            logger.warning(f"Failed to load risk_config.json: {e}")
+    
+    if source:
+        logger.info(f"Loaded settings from {source}")
+    
+    env = settings.get('environment', 'testnet')
+    env_config = settings.get(env, {})
     
     return {
-        'trading_enabled': False,
-        'cooldown_minutes': 30,
-        'allow_multiple_positions': False,
-        'leverage': 3,
-        'stop_loss': 5,
-        'take_profit': 10,
-        'position_size_pct': 2.0,
-        'environment': 'testnet',
-        'api_url': 'https://api.hyperliquid-testnet.xyz',
-        'wallet_address': '',
-        'private_key_env': 'HYPERLIQUID_TESTNET_PRIVATE_KEY'
+        'trading_enabled': settings.get('tradingEnabled', False),
+        'cooldown_minutes': settings.get('cooldownMinutes', 30),
+        'allow_multiple_positions': settings.get('allowMultiplePositions', False),
+        'leverage': settings.get('leverage', 3),
+        'stop_loss': settings.get('stopLoss', 5),
+        'take_profit': settings.get('takeProfit', 3),
+        'position_size_pct': settings.get('positionSizePct', 2.0),
+        'environment': env,
+        'api_url': env_config.get('apiUrl', 'https://api.hyperliquid-testnet.xyz'),
+        'wallet_address': env_config.get('walletAddress', ''),
+        'main_wallet_address': env_config.get('mainWalletAddress', env_config.get('walletAddress', '')),
+        'private_key_env': env_config.get('privateKeyEnv', 'HYPERLIQUID_TESTNET_PRIVATE_KEY')
     }
 
 
@@ -193,42 +210,42 @@ class SignalIntegrator:
     def _get_existing_position(self, coin: str, strategy: str = None) -> Optional[Dict]:
         """Check if there's an actual open position on HyperLiquid for this coin.
         
-        With wallet separation, we check the appropriate wallet based on strategy type.
-        Swing strategies check swing wallet, scalp strategies check scalp wallet.
+        Checks BOTH wallets (swing and scalp) regardless of which strategy is requesting.
+        This prevents any strategy from opening a position if ANY wallet already has one.
         
         Args:
             coin: The coin to check (BTC, ETH, SOL)
-            strategy: Optional strategy name to determine which wallet to check
+            strategy: Optional strategy name (used only for logging, not wallet selection)
         
         Returns position dict with size, strategy, wallet_type, etc. or None if no position.
         """
         try:
-            # Determine which executor/wallet to check based on strategy
-            if strategy:
-                executor = self._get_executor_for_strategy(strategy)
-                creds = get_credentials_for_strategy(strategy)
-                wallet_type = creds.get('wallet_type', 'swing')
-            else:
-                # Default to swing executor if no strategy specified
-                executor = self.swing_executor or self._get_executor_for_strategy('swing')
-                wallet_type = 'swing'
-            
-            positions = executor.client.get_positions()
-            for pos in positions:
-                if pos.get('coin') == coin and abs(pos.get('size', 0)) > 0:
-                    # Found an open position - try to find strategy from trade history
-                    position_strategy = None
-                    for trade in reversed(self.signal_history):
-                        if trade.get('coin') == coin:
-                            position_strategy = trade.get('strategy')
-                            break
-                    return {
-                        'coin': coin,
-                        'size': pos.get('size'),
-                        'entry_px': pos.get('entry_px'),
-                        'strategy': position_strategy,
-                        'wallet_type': wallet_type
-                    }
+            # Check BOTH wallets - swing and scalp
+            # This prevents position stacking across wallet types
+            for wallet_type in ['swing', 'scalp']:
+                # Get executor for this wallet type
+                if wallet_type == 'swing':
+                    executor = self.swing_executor or self._get_executor_for_strategy('rsi_mean_reversion')
+                else:
+                    executor = self.scalp_executor or self._get_executor_for_strategy('fvg_proximity')
+                
+                positions = executor.client.get_positions()
+                for pos in positions:
+                    if pos.get('coin') == coin and abs(pos.get('size', 0)) > 0:
+                        # Found an open position - try to find strategy from trade history
+                        position_strategy = None
+                        for trade in reversed(self.signal_history):
+                            if trade.get('coin') == coin:
+                                position_strategy = trade.get('strategy')
+                                break
+                        logger.info(f"Found existing {coin} position in {wallet_type} wallet (size: {pos.get('size')})")
+                        return {
+                            'coin': coin,
+                            'size': pos.get('size'),
+                            'entry_px': pos.get('entry_px'),
+                            'strategy': position_strategy,
+                            'wallet_type': wallet_type
+                        }
         except Exception as e:
             logger.warning(f"Failed to check existing positions: {e}")
         return None
@@ -357,19 +374,23 @@ class SignalIntegrator:
         # With wallet separation, we check the appropriate wallet for this strategy
         existing_position = self._get_existing_position(symbol, strategy)
         if existing_position:
+            # Use the WALLET TYPE of the existing position, not the strategy category
+            # This is more accurate because positions can end up in wrong wallets due to bugs
+            existing_wallet = existing_position.get('wallet_type', 'swing')
             existing_strategy = existing_position.get('strategy')
-            existing_category = get_strategy_category(existing_strategy) if existing_strategy else 'swing'
+            existing_category = get_strategy_category(existing_strategy) if existing_strategy else existing_wallet
             
             # Block if same category (regardless of direction)
             # Different category is allowed (e.g., have swing long, can open scalp long)
-            if existing_category == category:
+            # Use wallet_type for comparison since that's where the position actually is
+            if existing_wallet == category:
                 self.last_skip_reason = 'existing_position_same_category'
-                logger.info(f"Already have open {existing_category} position in {symbol} from '{existing_strategy}', skipping new {category} signal from '{strategy}'")
+                logger.info(f"Already have open {existing_wallet} position in {symbol} from '{existing_strategy}', skipping new {category} signal from '{strategy}'")
                 return None
             else:
                 existing_side = 'long' if existing_position.get('size', 0) > 0 else 'short'
                 new_side = 'long' if action == 'BUY' else 'short'
-                logger.info(f"Have {existing_side} {existing_category} position in {symbol} from '{existing_strategy}', allowing new {new_side} {category} signal from '{strategy}'")
+                logger.info(f"Have {existing_side} {existing_wallet} position in {symbol} from '{existing_strategy}', allowing new {new_side} {category} signal from '{strategy}'")
         
         # Execute the trade
         logger.info(f"""
@@ -438,6 +459,15 @@ Dry Run: {dry_run}
             main_wallet=creds['main_wallet']
         )
         
+        # Check if trade was skipped by trade_executor
+        if trade is None:
+            from trade_executor import get_last_skip_reason
+            executor_skip_reason = get_last_skip_reason()
+            if executor_skip_reason:
+                self.last_skip_reason = executor_skip_reason
+                logger.info(f"Trade skipped by executor: {executor_skip_reason}")
+                return None
+        
         if trade:
             # Set cooldown after successful trade (using configured cooldown_minutes)
             self._set_cooldown(coin)
@@ -500,17 +530,26 @@ Dry Run: {dry_run}
         Update all open positions - check for exits, update P&L
         Call this periodically (e.g., every 5 minutes)
         """
-        self.executor.update_positions()
+        if self.swing_executor:
+            self.swing_executor.update_positions()
+        if self.scalp_executor:
+            self.scalp_executor.update_positions()
     
     def get_status(self) -> Dict:
         """Get current integrator status"""
+        open_positions = 0
+        if self.swing_executor:
+            open_positions += len(self.swing_executor.open_trades)
+        if self.scalp_executor:
+            open_positions += len(self.scalp_executor.open_trades)
+        
         return {
-            'open_positions': len(self.executor.open_trades),
+            'open_positions': open_positions,
             'total_signal_trades': len(self.signal_history),
             'test_mode': self.test_mode,
             'min_confidence': self.min_confidence,
             'cooldown_minutes': self.cooldown_minutes,
-            'portfolio': self.executor.get_portfolio_summary()
+            'portfolio': None  # Portfolio summary would need to be combined from both executors
         }
     
     def print_status(self):
@@ -528,7 +567,12 @@ Dry Run: {dry_run}
         print(f"Signal Trade History: {status['total_signal_trades']}")
         print("="*60)
         
-        self.executor.print_portfolio()
+        if self.swing_executor:
+            print("\n--- SWING Portfolio ---")
+            self.swing_executor.print_portfolio()
+        if self.scalp_executor:
+            print("\n--- SCALP Portfolio ---")
+            self.scalp_executor.print_portfolio()
 
 
 def run_signal_cycle(signal_file: Optional[str] = None, 

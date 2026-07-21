@@ -38,7 +38,7 @@ export function HealthMonitor() {
   if (!health) return null;
 
   const getStatusIcon = () => {
-    switch (health.health) {
+    switch (health.status) {
       case "healthy":
         return "✓";
       case "warning":
@@ -51,7 +51,7 @@ export function HealthMonitor() {
   };
 
   const getStatusClass = () => {
-    switch (health.health) {
+    switch (health.status) {
       case "healthy":
         return "status-healthy";
       case "warning":
@@ -83,7 +83,7 @@ export function HealthMonitor() {
         <div className="health-header">
           <span className="health-icon">{getStatusIcon()}</span>
           <span className={`health-status ${getStatusClass()}`}>
-            {health.health.toUpperCase()}
+            {(health.status || "unknown").toUpperCase()}
           </span>
         </div>
 

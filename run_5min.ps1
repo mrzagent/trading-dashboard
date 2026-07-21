@@ -1,15 +1,51 @@
 # Trading 5min Data Collection - HyperLiquid
 $ErrorActionPreference = "Stop"
 
-$logFile = "D:\dev\trading\collector_5min.log"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$logFile = "$scriptDir\logs\collector_5min.log"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
+# Ensure log directory exists
+$logDir = Split-Path -Parent $logFile
+if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+}
+
+function Write-Log($message, $level = "INFO") {
+    $logEntry = "$timestamp [$level] $message"
+    Write-Host $logEntry
+    $logEntry | Out-File -FilePath $logFile -Append
+}
+
 try {
-    Set-Location "D:\dev\trading"
-    $output = python candle_collector.py --timeframe 5min --quiet 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        "$timestamp ERROR: Exit code $LASTEXITCODE - $output" | Out-File -FilePath $logFile -Append
+    Set-Location $scriptDir
+    Write-Log "Starting 5min candle collection..."
+    
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "python"
+    $psi.Arguments = "candle_collector.py --timeframe 5min --quiet"
+    $psi.WorkingDirectory = $scriptDir
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    
+    $process = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    
+    if ($stdout) {
+        Write-Log "Output: $stdout"
+    }
+    if ($stderr) {
+        Write-Log "Stderr: $stderr" "WARN"
+    }
+    
+    if ($process.ExitCode -eq 0) {
+        Write-Log "Collection completed successfully"
+    } else {
+        Write-Log "Collection failed with exit code $($process.ExitCode)" "ERROR"
     }
 } catch {
-    "$timestamp ERROR: $_" | Out-File -FilePath $logFile -Append
+    Write-Log "ERROR: $_" "ERROR"
 }

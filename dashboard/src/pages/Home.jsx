@@ -52,7 +52,7 @@ export default function Home() {
   // Update settings
   const handleUpdateSettings = async (settings) => {
     try {
-      const response = await fetch("http://localhost:3001/api/trading/settings", {
+      const response = await fetch("http://localhost:3001/api/trading/account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),

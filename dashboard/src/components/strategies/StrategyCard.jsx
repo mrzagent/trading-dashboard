@@ -211,7 +211,7 @@ export default function StrategyCard({
           <label className="strategy-toggle">
             <input
               type="checkbox"
-              checked={active}
+              checked={active ?? false}
               onChange={() => onToggle(strategy.id)}
             />
             <span className="toggle-slider"></span>

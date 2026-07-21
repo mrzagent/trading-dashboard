@@ -2,12 +2,37 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { COIN_ICON, COIN_COLOR } from "./constants";
 import "./SignalsList.css";
 
-// PageNumbers component - shows max 10 pages (1-10), no ellipsis
+// PageNumbers component - shows sliding window of 10 pages around current page
 function PageNumbers({ currentPage, totalPages, onPageChange, disabled }) {
   const getPageNumbers = () => {
-    const maxPages = Math.min(10, totalPages);
+    const maxVisible = 10;
+    let startPage, endPage;
+    
+    if (totalPages <= maxVisible) {
+      // Show all pages if total is less than max visible
+      startPage = 1;
+      endPage = totalPages;
+    } else {
+      // Calculate sliding window
+      const halfVisible = Math.floor(maxVisible / 2);
+      
+      if (currentPage <= halfVisible) {
+        // Near the start
+        startPage = 1;
+        endPage = maxVisible;
+      } else if (currentPage + halfVisible >= totalPages) {
+        // Near the end
+        startPage = totalPages - maxVisible + 1;
+        endPage = totalPages;
+      } else {
+        // In the middle
+        startPage = currentPage - halfVisible;
+        endPage = currentPage + halfVisible - 1;
+      }
+    }
+    
     const pages = [];
-    for (let i = 1; i <= maxPages; i++) {
+    for (let i = startPage; i <= endPage; i++) {
       pages.push(i);
     }
     return pages;
@@ -59,7 +84,7 @@ export default function SignalsList({ initialSignals }) {
       ? initialSignals
       : [];
   const initialPagination = isNewFormat
-    ? initialSignals.pagination
+    ? (initialSignals.pagination || { page: 1, limit: 10, total: 0, totalPages: 1 })
     : { page: 1, limit: 10, total: 0, totalPages: 1 };
 
   const [signals, setSignals] = useState(initialSignalsList || []);
@@ -202,7 +227,7 @@ export default function SignalsList({ initialSignals }) {
             className={filters.action === "ALL" ? "active" : ""}
             onClick={() => handleFilterChange("ALL")}
           >
-            All ({pagination.total})
+            All ({pagination?.total ?? 0})
           </button>
           <button
             className={filters.action === "BUY" ? "active" : ""}
@@ -237,12 +262,12 @@ export default function SignalsList({ initialSignals }) {
           </select>
 
           <div className="pagination-info">
-            Page {pagination.page} of {Math.min(10, pagination.totalPages)}
+            Page {pagination?.page ?? 1} of {pagination?.totalPages ?? 1}
           </div>
 
           <PageNumbers
             currentPage={page}
-            totalPages={pagination.totalPages}
+            totalPages={pagination?.totalPages ?? 1}
             onPageChange={handlePageChange}
             disabled={loading}
           />
@@ -296,7 +321,9 @@ export default function SignalsList({ initialSignals }) {
                   </div>
 
                   <span className="signal-strategy">{sig.strategy}</span>
-                  <span className="signal-time">{sig.timeAgo || sig.time}</span>
+                  <span className="signal-time" title={sig.timeAgo || sig.time}>
+                    {sig.timestamp || sig.formattedDate + ' ' + sig.formattedTime || sig.timeAgo || sig.time}
+                  </span>
 
                   {sig.notes && (
                     <div className="signal-notes" title={sig.notes}>
@@ -310,9 +337,9 @@ export default function SignalsList({ initialSignals }) {
 
           <div className="signals-footer">
             <div className="pagination-summary">
-              Showing {(pagination.page - 1) * pagination.limit + 1} -{" "}
-              {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
-              of {pagination.total} signals
+              Showing {((pagination?.page ?? 1) - 1) * (pagination?.limit ?? 10) + 1} -{" "}
+              {Math.min((pagination?.page ?? 1) * (pagination?.limit ?? 10), pagination?.total ?? 0)}{" "}
+              of {pagination?.total ?? 0} signals
             </div>
           </div>
         </>

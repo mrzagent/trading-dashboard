@@ -2,17 +2,18 @@
 """Fetch account info from Hyperliquid for dashboard.
 
 With wallet separation, this aggregates account info from BOTH swing and scalp wallets.
+Uses direct HTTP requests instead of the SDK to avoid hanging issues.
 """
 import sys
 import os
 import json
-import threading
+import urllib.request
+import urllib.error
 
 # Add trading directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hyperliquid.info import Info
-from config_loader import get_swing_credentials, get_scalp_credentials, HYPERLIQUID_ENV
+from config_loader import get_swing_credentials, get_scalp_credentials
 
 
 def load_risk_config_defaults():
@@ -34,6 +35,18 @@ def load_risk_config_defaults():
         return {'leverage': 3, 'stopLoss': 5.0, 'takeProfit': 3.0}
 
 
+def hl_api_post(base_url: str, payload: dict) -> dict:
+    """Make a POST request to HyperLiquid API."""
+    req = urllib.request.Request(
+        f"{base_url}/info",
+        data=json.dumps(payload).encode(),
+        headers={'Content-Type': 'application/json'},
+        method='POST'
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read())
+
+
 def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
     """Fetch account info for a specific wallet.
     
@@ -49,36 +62,39 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
     api_url = creds['api_url']
     
     try:
-        info = Info(base_url=api_url)
+        # Get clearinghouse state (perp account) - use main wallet for balance
+        state = hl_api_post(api_url, {"type": "clearinghouseState", "user": main_wallet})
         
-        # Get account state (perp account) - use main wallet for balance
-        state = info.user_state(main_wallet)
+        # Get spot clearinghouse state (spot balance)
+        spot_state = hl_api_post(api_url, {"type": "spotClearinghouseState", "user": main_wallet})
+        
+        # Calculate spot USDC balance
+        spot_usdc = 0.0
+        for balance in spot_state.get('balances', []):
+            if balance.get('coin') == 'USDC':
+                spot_usdc = float(balance.get('total', 0))
+                break
         
         # Get margin summary
         margin_summary = state.get('marginSummary', {})
         total_margin_used = float(margin_summary.get('totalMarginUsed', 0))
-        total_ntl_pos = float(margin_summary.get('totalNtlPos', 0))
+        perp_account_value = float(margin_summary.get('accountValue', 0))
         
-        # Get Total Equity from portfolio endpoint
-        account_value = 0.0
+        # Total account value = perp + spot
+        account_value = perp_account_value + spot_usdc
+        
+        # Get portfolio data for PnL
         pnl_24h = 0.0
-        
         try:
-            portfolio = info.post("/info", {"type": "portfolio", "user": wallet_address})
+            portfolio = hl_api_post(api_url, {"type": "portfolio", "user": main_wallet})
+            # portfolio is a list of [period, data] pairs
             for period_name, period_data in portfolio:
                 if period_name == "day":
-                    history = period_data.get("accountValueHistory", [])
                     pnl_hist = period_data.get("pnlHistory", [])
-                    if history:
-                        account_value = float(history[-1][1])
                     if pnl_hist and len(pnl_hist) >= 2:
                         pnl_24h = float(pnl_hist[-1][1]) - float(pnl_hist[0][1])
         except Exception:
             pass
-        
-        # Fallback: perp account value if portfolio call failed
-        if account_value == 0.0:
-            account_value = float(margin_summary.get('accountValue', 0))
         
         # Calculate deployed capital from positions
         positions = state.get('assetPositions', [])
@@ -98,15 +114,18 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
             if pnl is not None:
                 unrealized_pnl += float(pnl)
         
+        # Calculate available balance (excluding margin used)
+        available_balance = account_value - total_margin_used
+        
         return {
             'walletType': wallet_type,
             'mainWallet': main_wallet,
             'agentWallet': agent_wallet,
             'mainWalletDisplay': main_wallet[:10] + '...' + main_wallet[-6:] if len(main_wallet) > 16 else main_wallet,
             'agentWalletDisplay': agent_wallet[:10] + '...' + agent_wallet[-6:] if len(agent_wallet) > 16 else agent_wallet,
-            'balance': account_value,
+            'balance': available_balance,  # Show available balance as equity (not total account value)
             'deployedCapital': deployed,
-            'available': account_value - total_margin_used,
+            'available': available_balance,
             'positionCount': position_count,
             'unrealizedPnl': unrealized_pnl,
             'totalMargin': total_margin_used,
@@ -155,6 +174,10 @@ def fetch_all_account_info():
         # Load risk config defaults
         defaults = load_risk_config_defaults()
         
+        # Get private keys from config (for display in dashboard)
+        swing_private_key = swing_creds.get('agent_private_key', '')
+        scalp_private_key = scalp_creds.get('agent_private_key', '')
+        
         # Build combined result
         result = {
             # Aggregated totals
@@ -174,7 +197,12 @@ def fetch_all_account_info():
             'wallets': {
                 'swing': swing_info,
                 'scalp': scalp_info
-            }
+            },
+            # Private keys (masked) for dashboard display
+            'swingAgentPrivateKey': swing_private_key,
+            'scalpAgentPrivateKey': scalp_private_key,
+            'hasSwingPrivateKey': bool(swing_private_key),
+            'hasScalpPrivateKey': bool(scalp_private_key)
         }
         
         return result
@@ -202,45 +230,7 @@ def fetch_all_account_info():
 
 
 # Main execution
-result = {'data': None, 'error': None}
-
-
-def run_fetch():
-    result['data'] = fetch_all_account_info()
-
-
-# Run fetch in a thread with timeout
-thread = threading.Thread(target=run_fetch)
-thread.daemon = True
-thread.start()
-thread.join(timeout=10)  # 10 second timeout for both wallets
-
-# Default fallback
-fallback_defaults = load_risk_config_defaults()
-fallback = {
-    'balance': 0,
-    'deployedCapital': 0,
-    'available': 0,
-    'positionCount': 0,
-    'unrealizedPnl': 0,
-    'totalMargin': 0,
-    'pnl24h': None,
-    'pnl7d': None,
-    'pnl30d': None,
-    'leverage': fallback_defaults['leverage'],
-    'stopLoss': fallback_defaults['stopLoss'],
-    'takeProfit': fallback_defaults['takeProfit'],
-    'wallets': {}
-}
-
-if thread.is_alive():
-    # Timeout - return defaults
-    print(json.dumps(fallback))
-else:
-    if result['error']:
-        print(f"Error: {result['error']}", file=sys.stderr)
-        print(json.dumps(fallback))
-    else:
-        print(json.dumps(result['data'] or fallback))
-
-sys.stdout.flush()
+if __name__ == "__main__":
+    result = fetch_all_account_info()
+    print(json.dumps(result))
+    sys.stdout.flush()

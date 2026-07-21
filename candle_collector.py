@@ -108,11 +108,11 @@ CREATE TABLE IF NOT EXISTS {table} (
 
 INSERT_ROW_TEMPLATE = """
 INSERT INTO {table}
-    (captured_at, coin, price, change_24h, volume_24h, market_cap,
+    (captured_at, coin, price, change_24h, volume_24h, volume_candle, market_cap,
      rsi, momentum, fvg_count, fvg_data, alert_triggered, raw_data,
      high_price, low_price, open_price)
 VALUES
-    (%(captured_at)s, %(coin)s, %(price)s, %(change_24h)s, %(volume_24h)s,
+    (%(captured_at)s, %(coin)s, %(price)s, %(change_24h)s, %(volume_24h)s, %(volume_candle)s,
      %(market_cap)s, %(rsi)s, %(momentum)s, %(fvg_count)s,
      %(fvg_data)s, %(alert_triggered)s, %(raw_data)s,
      %(high_price)s, %(low_price)s, %(open_price)s)
@@ -400,6 +400,7 @@ def collect(timeframe: str, quiet: bool = False, no_db: bool = False,
                         "price":         r["price"],
                         "change_24h":    r["change_24h"],
                         "volume_24h":    r["volume_24h"],
+                        "volume_candle": r["volume_candle"],
                         "market_cap":    r["market_cap"],
                         "rsi":           r["rsi"],
                         "momentum":      r["momentum"],

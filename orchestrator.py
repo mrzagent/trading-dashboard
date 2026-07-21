@@ -34,49 +34,87 @@ STRATEGY_STATE_PATH = Path(__file__).parent / ".strategy_state.json"
 # Path to account settings (managed by dashboard)
 ACCOUNT_SETTINGS_PATH = Path(__file__).parent / ".account_settings.json"
 
+# Path to risk config (also managed by dashboard - newer format)
+RISK_CONFIG_PATH = Path(__file__).parent / "risk_config.json"
+
 
 def load_account_settings() -> dict:
-    """Load account settings from .account_settings.json.
+    """Load account settings from .account_settings.json or risk_config.json.
     
     Returns dict with trading_enabled, cooldown_minutes, allow_multiple_positions, leverage, position_size_pct, and environment.
     """
+    settings = {}
+    source = None
+    
+    # Try .account_settings.json first (legacy format)
     try:
         if ACCOUNT_SETTINGS_PATH.exists():
             with open(ACCOUNT_SETTINGS_PATH, 'r') as f:
                 settings = json.load(f)
-            
-            env = settings.get('environment', 'testnet')
-            env_config = settings.get(env, {})
-            
-            return {
-                'trading_enabled': settings.get('tradingEnabled', False),
-                'cooldown_minutes': settings.get('cooldownMinutes', 30),
-                'allow_multiple_positions': settings.get('allowMultiplePositions', False),
-                'leverage': settings.get('leverage', 3),
-                'stop_loss': settings.get('stopLoss', 5),
-                'take_profit': settings.get('takeProfit', 10),
-                'position_size_pct': settings.get('positionSizePct', 2.0),
-                'environment': env,
-                'api_url': env_config.get('apiUrl', 'https://api.hyperliquid-testnet.xyz'),
-                'wallet_address': env_config.get('walletAddress', ''),
-                'private_key_env': env_config.get('privateKeyEnv', 'HYPERLIQUID_TESTNET_PRIVATE_KEY')
-            }
+                source = '.account_settings.json'
     except Exception as e:
-        print(f"[orchestrator] Warning: Failed to load account settings: {e}", file=sys.stderr)
+        print(f"[orchestrator] Warning: Failed to load .account_settings.json: {e}", file=sys.stderr)
+    
+    # Fallback to risk_config.json (newer format used by dashboard)
+    if not settings and RISK_CONFIG_PATH.exists():
+        try:
+            with open(RISK_CONFIG_PATH, 'r') as f:
+                risk_config = json.load(f)
+                # Map risk_config fields to account settings format
+                settings = {
+                    'tradingEnabled': risk_config.get('tradingEnabled', False),
+                    'cooldownMinutes': risk_config.get('cooldownMinutes', 30),
+                    'allowMultiplePositions': risk_config.get('allowMultiplePositions', False),
+                    'leverage': risk_config.get('leverage', 3),
+                    'stopLoss': risk_config.get('stopLoss', 5),
+                    'takeProfit': risk_config.get('takeProfit', 3),
+                    'positionSizePct': risk_config.get('positionSizePct', 2.0),
+                    'environment': risk_config.get('environment', 'testnet'),
+                }
+                source = 'risk_config.json'
+        except Exception as e:
+            print(f"[orchestrator] Warning: Failed to load risk_config.json: {e}", file=sys.stderr)
+    
+    if source:
+        print(f"[orchestrator] Loaded settings from {source}", file=sys.stderr)
+    
+    env = settings.get('environment', 'testnet')
+    env_config = settings.get(env, {})
     
     return {
-        'trading_enabled': False,
-        'cooldown_minutes': 30,
-        'allow_multiple_positions': False,
-        'leverage': 3,
-        'stop_loss': 5,
-        'take_profit': 10,
-        'position_size_pct': 2.0,
-        'environment': 'testnet',
-        'api_url': 'https://api.hyperliquid-testnet.xyz',
-        'wallet_address': '',
-        'private_key_env': 'HYPERLIQUID_TESTNET_PRIVATE_KEY'
+        'trading_enabled': settings.get('tradingEnabled', False),
+        'cooldown_minutes': settings.get('cooldownMinutes', 30),
+        'allow_multiple_positions': settings.get('allowMultiplePositions', False),
+        'leverage': settings.get('leverage', 3),
+        'stop_loss': settings.get('stopLoss', 5),
+        'take_profit': settings.get('takeProfit', 3),
+        'position_size_pct': settings.get('positionSizePct', 2.0),
+        'environment': env,
+        'api_url': env_config.get('apiUrl', 'https://api.hyperliquid-testnet.xyz'),
+        'wallet_address': env_config.get('walletAddress', ''),
+        'private_key_env': env_config.get('privateKeyEnv', 'HYPERLIQUID_TESTNET_PRIVATE_KEY')
     }
+
+
+def get_spot_balance(api_url: str, wallet: str) -> float:
+    """Get USDC spot balance using direct HTTP request (avoids SDK hanging)."""
+    import urllib.request
+    import urllib.error
+    try:
+        req = urllib.request.Request(
+            f"{api_url}/info",
+            data=json.dumps({"type": "spotClearinghouseState", "user": wallet}).encode(),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            spot_state = json.loads(resp.read())
+            for balance in spot_state.get('balances', []):
+                if balance.get('coin') == 'USDC':
+                    return float(balance.get('total', 0))
+    except Exception as e:
+        print(f"[orchestrator] Warning: Could not get spot balance: {e}", file=sys.stderr)
+    return 0.0
 
 
 def get_risk_config() -> RiskConfig:
@@ -85,15 +123,8 @@ def get_risk_config() -> RiskConfig:
     
     # Get actual account balance from HyperLiquid (spot balance, not margin value)
     try:
-        from hyperliquid.info import Info
-        info = Info(settings['api_url'], skip_ws=True)
         main_wallet = settings.get('main_wallet_address') or settings['wallet_address']
-        spot_state = info.spot_user_state(main_wallet)
-        usdc_balance = 0.0
-        for balance in spot_state.get('balances', []):
-            if balance.get('coin') == 'USDC':
-                usdc_balance = float(balance.get('total', 0))
-                break
+        usdc_balance = get_spot_balance(settings['api_url'], main_wallet)
         # Use at least $100 to avoid tiny positions during testing
         initial_capital = max(usdc_balance, 100.0) if usdc_balance > 0 else 1000.0
         print(f"[orchestrator] Spot balance: ${usdc_balance:.2f}, using: ${initial_capital:.2f}", file=sys.stderr)

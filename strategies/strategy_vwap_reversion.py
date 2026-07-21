@@ -31,10 +31,10 @@ def calculate_vwap(rows: list[dict]) -> float:
     total_vol = 0.0
     
     for r in rows:
-        high = float(r.get("high", 0) or r.get("price", 0))
-        low = float(r.get("low", 0) or r.get("price", 0))
+        high = float(r.get("high_price") or r.get("high") or r.get("price", 0))
+        low = float(r.get("low_price") or r.get("low") or r.get("price", 0))
         close = float(r["price"])
-        volume = float(r.get("volume") or r.get("volume_5m") or r.get("volume_candle") or 0)
+        volume = float(r.get("volume_candle") or r.get("volume_5m") or r.get("volume") or 0)
         
         if volume <= 0:
             continue

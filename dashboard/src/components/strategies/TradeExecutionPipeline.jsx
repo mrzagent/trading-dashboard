@@ -1,6 +1,71 @@
 import { useState, useEffect, useCallback } from "react";
 import "./TradeExecutionPipeline.css";
 
+// PageNumbers component - shows sliding window of 10 pages around current page
+function PageNumbers({ currentPage, totalPages, onPageChange, disabled }) {
+  const getPageNumbers = () => {
+    const maxVisible = 10;
+    let startPage, endPage;
+    
+    if (totalPages <= maxVisible) {
+      startPage = 1;
+      endPage = totalPages;
+    } else {
+      const halfVisible = Math.floor(maxVisible / 2);
+      
+      if (currentPage <= halfVisible) {
+        startPage = 1;
+        endPage = maxVisible;
+      } else if (currentPage + halfVisible >= totalPages) {
+        startPage = totalPages - maxVisible + 1;
+        endPage = totalPages;
+      } else {
+        startPage = currentPage - halfVisible;
+        endPage = currentPage + halfVisible - 1;
+      }
+    }
+    
+    const pages = [];
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
+  const pages = getPageNumbers();
+
+  return (
+    <div className="page-numbers">
+      <button
+        onClick={() => onPageChange(currentPage - 1)}
+        disabled={currentPage === 1 || disabled}
+        className="page-btn nav"
+      >
+        ←
+      </button>
+
+      {pages.map((pageNum) => (
+        <button
+          key={pageNum}
+          onClick={() => onPageChange(pageNum)}
+          disabled={disabled}
+          className={`page-btn ${pageNum === currentPage ? "active" : ""}`}
+        >
+          {pageNum}
+        </button>
+      ))}
+
+      <button
+        onClick={() => onPageChange(currentPage + 1)}
+        disabled={currentPage === totalPages || disabled}
+        className="page-btn nav"
+      >
+        →
+      </button>
+    </div>
+  );
+}
+
 // Status icons
 const StatusIcon = ({ status }) => {
   if (status === "success") {
@@ -164,16 +229,20 @@ export default function TradeExecutionPipeline() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState("all"); // all, success, failed, pending
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
 
   const fetchExecutions = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(
-        "http://localhost:3001/api/trading/executions?limit=20",
+        `http://localhost:3001/api/trading/executions?page=${page}&limit=${limit}&status=${filter}`,
       );
       if (res.ok) {
         const data = await res.json();
         setExecutions(data.executions || []);
+        setPagination(data.pagination || { page: 1, limit: 10, total: 0, totalPages: 1 });
         setError(null);
       } else {
         setError("Failed to fetch executions");
@@ -183,9 +252,9 @@ export default function TradeExecutionPipeline() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, limit, filter]);
 
-  // Initial fetch
+  // Initial fetch and when params change
   useEffect(() => {
     fetchExecutions();
   }, [fetchExecutions]);
@@ -196,16 +265,26 @@ export default function TradeExecutionPipeline() {
     return () => clearInterval(interval);
   }, [fetchExecutions]);
 
-  const filteredExecutions = executions.filter((exec) => {
-    if (filter === "all") return true;
-    if (filter === "success") return exec.overallStatus === "success";
-    if (filter === "failed") return exec.overallStatus === "failed";
-    if (filter === "pending") return exec.overallStatus === "pending";
-    return true;
-  });
+  const handleFilterChange = (newFilter) => {
+    setFilter(newFilter);
+    setPage(1);
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= pagination.totalPages) {
+      setPage(newPage);
+    }
+  };
+
+  const handleLimitChange = (newLimit) => {
+    setLimit(parseInt(newLimit));
+    setPage(1);
+  };
 
   const getStats = () => {
-    const total = executions.length;
+    const total = pagination.total;
+    // These would ideally come from a separate stats endpoint
+    // For now, calculate from visible executions
     const success = executions.filter(
       (e) => e.overallStatus === "success",
     ).length;
@@ -243,13 +322,23 @@ export default function TradeExecutionPipeline() {
         <div className="pipeline-filters">
           <select
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={(e) => handleFilterChange(e.target.value)}
             className="filter-select"
           >
-            <option value="all">All ({stats.total})</option>
-            <option value="success">Success ({stats.success})</option>
-            <option value="failed">Failed ({stats.failed})</option>
-            <option value="pending">Pending ({stats.pending})</option>
+            <option value="all">All ({pagination.total})</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+            <option value="skipped">Skipped</option>
+            <option value="pending">Pending</option>
+          </select>
+          <select
+            className="limit-select"
+            value={limit}
+            onChange={(e) => handleLimitChange(e.target.value)}
+          >
+            <option value="10">10 / page</option>
+            <option value="25">25 / page</option>
+            <option value="50">50 / page</option>
           </select>
           <button
             onClick={fetchExecutions}
@@ -264,15 +353,32 @@ export default function TradeExecutionPipeline() {
       {error && <div className="pipeline-error">{error}</div>}
 
       <div className="executions-list">
-        {filteredExecutions.length === 0 ? (
+        {executions.length === 0 ? (
           <div className="no-executions">
             {loading ? "Loading..." : "No executions found"}
           </div>
         ) : (
-          filteredExecutions.map((execution) => (
+          executions.map((execution) => (
             <ExecutionRow key={execution.id} execution={execution} />
           ))
         )}
+      </div>
+
+      <div className="pipeline-footer">
+        <div className="pagination-info">
+          Page {pagination?.page ?? 1} of {pagination?.totalPages ?? 1}
+        </div>
+        <PageNumbers
+          currentPage={page}
+          totalPages={pagination?.totalPages ?? 1}
+          onPageChange={handlePageChange}
+          disabled={loading}
+        />
+        <div className="pagination-summary">
+          Showing {((pagination?.page ?? 1) - 1) * (pagination?.limit ?? 10) + 1} -{" "}
+          {Math.min((pagination?.page ?? 1) * (pagination?.limit ?? 10), pagination?.total ?? 0)}{" "}
+          of {pagination?.total ?? 0} executions
+        </div>
       </div>
 
       <div className="pipeline-legend">

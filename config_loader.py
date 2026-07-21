@@ -101,19 +101,18 @@ HYPERLIQUID_CONFIG = {
 
 # --- Strategy to Wallet Type Mapping ---
 STRATEGY_WALLET_TYPES = {
-    # SWING strategies
-    "fvg_proximity": "swing",
-    "volume_spike": "swing",
-    "trend_breakout": "swing",
-    "mean_reversion": "swing",
-    # SCALP strategies
-    "momentum_scalper": "scalp",
-    "pullback_scalper": "scalp",
-    "vwap_reversion": "scalp",
-    # Default to swing for others
+    # SWING strategies (1h, 4h timeframes)
     "rsi_mean_reversion": "swing",
     "momentum_rsi": "swing",
     "momentum_accel": "swing",
+    "mean_reversion": "swing",
+    "trend_breakout": "swing",
+    # SCALP strategies (5min timeframe)
+    "fvg_proximity": "scalp",
+    "volume_spike": "scalp",
+    "momentum_scalper": "scalp",
+    "pullback_scalper": "scalp",
+    "vwap_reversion": "scalp",
 }
 
 # --- Trading Parameters ---

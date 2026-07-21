@@ -8,5 +8,5 @@
   "momentum_accel": true,
   "vwap_reversion": true,
   "momentum_scalper": false,
-  "pullback_scalper": false
+  "pullback_scalper": true
 }

@@ -52,16 +52,35 @@ except ImportError:
 
     logging.warning("eth-account not installed. Real order placement disabled. Run: pip install eth-account")
 
-# Setup logging
+# Setup logging with absolute path
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(SCRIPT_DIR, 'logs', 'trade_executor.log')
+
+# Ensure logs directory exists
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('trade_executor.log'),
+        logging.FileHandler(LOG_FILE),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Module-level variable to store last skip reason
+_last_skip_reason = None
+
+def get_last_skip_reason():
+    """Get the reason why the last trade was skipped"""
+    global _last_skip_reason
+    return _last_skip_reason
+
+def set_last_skip_reason(reason):
+    """Set the reason why the current trade was skipped"""
+    global _last_skip_reason
+    _last_skip_reason = reason
 
 
 @dataclass
@@ -368,6 +387,7 @@ class HyperliquidClient:
                 order_type=sdk_order_type,
                 reduce_only=reduce_only
             )
+            logger.info(f"[DEBUG] Order result: {result}")
             logger.info(f"Order submitted: {coin} {'BUY' if is_buy else 'SELL'} {sz} @ ${limit_px}")
             return result
         except Exception as e:
@@ -1664,11 +1684,15 @@ def execute_signal(signal: Dict, test_mode: bool = True,
         api_url: Optional API URL (uses env var if not provided)
         main_wallet: Optional main wallet address that holds funds (for account_address)
     """
+    # Clear any previous skip reason
+    set_last_skip_reason(None)
+    
     # Check if trading is enabled
     from signal_integrator import load_account_settings
     settings = load_account_settings()
     if not settings.get('trading_enabled', False):
         logger.warning("Trading is disabled. Signal rejected in execute_signal.")
+        set_last_skip_reason("trading_disabled")
         return None
     
     action = signal.get('action', 'HOLD')
@@ -1719,10 +1743,11 @@ def execute_signal(signal: Dict, test_mode: bool = True,
     # Get actual account balance (use main wallet) - use spot balance not margin value
     from hyperliquid.info import Info
     try:
-        info = Info(settings['api_url'], skip_ws=True)
-        main_wallet = settings.get('main_wallet_address') or settings['wallet_address']
+        info = Info(api_url or settings['api_url'], skip_ws=True)
+        # Use passed-in main_wallet if provided, otherwise fall back to settings
+        balance_check_wallet = main_wallet or settings.get('main_wallet_address') or settings['wallet_address']
         # Get spot balance (real equity) not margin account value
-        spot_state = info.spot_user_state(main_wallet)
+        spot_state = info.spot_user_state(balance_check_wallet)
         usdc_balance = 0.0
         for balance in spot_state.get('balances', []):
             if balance.get('coin') == 'USDC':
@@ -1802,6 +1827,7 @@ def execute_signal(signal: Dict, test_mode: bool = True,
             can_open, reason = executor.can_open_position(coin, margin_required, strategy)
             if not can_open:
                 logger.warning(f"Cannot open position: {reason}")
+                set_last_skip_reason(reason)
                 return None
             
             # Calculate take profits - use strategy-provided TP % if available, else from risk config

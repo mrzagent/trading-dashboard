@@ -25,16 +25,20 @@ export default function RiskSummary({ account, onUpdateSettings }) {
     // Wallet separation - 4 wallets total
     swingMainWallet: "",
     swingAgentWallet: "",
+    swingAgentPrivateKey: "",
     scalpMainWallet: "",
     scalpAgentWallet: "",
+    scalpAgentPrivateKey: "",
   });
   const [saving, setSaving] = useState(false);
   const [editingWallets, setEditingWallets] = useState(false);
 
   // Update local settings when account changes (API returns risk_config.json values)
+  // BUT don't overwrite wallet fields if user is currently editing wallets
   useEffect(() => {
     if (account) {
-      setLocalSettings({
+      setLocalSettings((prev) => ({
+        // Trading params - safe to update anytime
         tradingEnabled: account.tradingEnabled ?? DEFAULT_TRADING_ENABLED,
         leverage: account.leverage ?? DEFAULT_LEVERAGE,
         stopLoss: account.stopLoss ?? DEFAULT_STOP_LOSS,
@@ -44,14 +48,16 @@ export default function RiskSummary({ account, onUpdateSettings }) {
           account.allowMultiplePositions ?? DEFAULT_ALLOW_MULTIPLE_POSITIONS,
         positionSizePct: account.positionSizePct ?? DEFAULT_POSITION_SIZE_PCT,
         environment: account.environment ?? DEFAULT_ENVIRONMENT,
-        // Wallet separation - 4 wallets total
-        swingMainWallet: account.swingMainWallet ?? "",
-        swingAgentWallet: account.swingAgentWallet ?? "",
-        scalpMainWallet: account.scalpMainWallet ?? "",
-        scalpAgentWallet: account.scalpAgentWallet ?? "",
-      });
+        // Wallet fields - only update if not currently editing
+        swingMainWallet: editingWallets ? prev.swingMainWallet : (account.swingMainWallet ?? ""),
+        swingAgentWallet: editingWallets ? prev.swingAgentWallet : (account.swingAgentWallet ?? ""),
+        swingAgentPrivateKey: editingWallets ? prev.swingAgentPrivateKey : (account.swingAgentPrivateKey ?? ""),
+        scalpMainWallet: editingWallets ? prev.scalpMainWallet : (account.scalpMainWallet ?? ""),
+        scalpAgentWallet: editingWallets ? prev.scalpAgentWallet : (account.scalpAgentWallet ?? ""),
+        scalpAgentPrivateKey: editingWallets ? prev.scalpAgentPrivateKey : (account.scalpAgentPrivateKey ?? ""),
+      }));
     }
-  }, [account]);
+  }, [account, editingWallets]);
 
   const handleChange = (key, value) => {
     let parsedValue;
@@ -61,6 +67,8 @@ export default function RiskSummary({ account, onUpdateSettings }) {
       parsedValue = value; // Keep string for environment
     } else if (key === "allowMultiplePositions") {
       parsedValue = value; // Keep boolean
+    } else if (key.includes("Wallet") || key.includes("PrivateKey")) {
+      parsedValue = value; // Keep string for wallet addresses and private keys
     } else {
       parsedValue = parseFloat(value);
     }
@@ -122,8 +130,10 @@ export default function RiskSummary({ account, onUpdateSettings }) {
     localSettings.environment !== accountEnvironment ||
     localSettings.swingMainWallet !== (swingWallet?.mainWallet || "") ||
     localSettings.swingAgentWallet !== (swingWallet?.agentWallet || "") ||
+    localSettings.swingAgentPrivateKey !== (account?.swingAgentPrivateKey || "") ||
     localSettings.scalpMainWallet !== (scalpWallet?.mainWallet || "") ||
-    localSettings.scalpAgentWallet !== (scalpWallet?.agentWallet || "");
+    localSettings.scalpAgentWallet !== (scalpWallet?.agentWallet || "") ||
+    localSettings.scalpAgentPrivateKey !== (account?.scalpAgentPrivateKey || "");
 
   const formatPnl = (val) => {
     if (val === null || val === undefined) return "—";
@@ -186,6 +196,16 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     placeholder="0x... (signs transactions)"
                   />
                 </div>
+                <div className="wallet-row editable">
+                  <span className="wallet-label">Agent Key</span>
+                  <input
+                    type="text"
+                    className="wallet-input"
+                    value={localSettings.swingAgentPrivateKey}
+                    onChange={(e) => handleChange("swingAgentPrivateKey", e.target.value)}
+                    placeholder="Private key for agent wallet"
+                  />
+                </div>
               </div>
               <div className="wallet-section">
                 <h4 className="wallet-section-title">SCALP Wallets</h4>
@@ -207,6 +227,16 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     value={localSettings.scalpAgentWallet}
                     onChange={(e) => handleChange("scalpAgentWallet", e.target.value)}
                     placeholder="0x... (signs transactions)"
+                  />
+                </div>
+                <div className="wallet-row editable">
+                  <span className="wallet-label">Agent Key</span>
+                  <input
+                    type="text"
+                    className="wallet-input"
+                    value={localSettings.scalpAgentPrivateKey}
+                    onChange={(e) => handleChange("scalpAgentPrivateKey", e.target.value)}
+                    placeholder="Private key for agent wallet"
                   />
                 </div>
               </div>

@@ -222,22 +222,27 @@ app.get('/api/trading/config', (req, res) => {
 // Health Monitoring Endpoint
 app.get('/api/trading/health', async (req, res) => {
   try {
-    const result = await tradingPool.query(
-      `SELECT coin, MAX(captured_at) as latest, COUNT(*) as count 
-       FROM trading_prices 
-       GROUP BY coin`
-    );
-    
     const now = new Date();
     const staleThreshold = 10 * 60 * 1000; // 10 minutes
     
     const health = {
       status: 'healthy',
+      timestamp: now.toISOString(),
       dataFreshness: {},
-      issues: []
+      issues: [],
+      orchestrator: null,
+      tradeState: null,
+      lastSignal: null
     };
     
-    for (const row of result.rows) {
+    // Check price data freshness
+    const priceResult = await tradingPool.query(
+      `SELECT coin, MAX(captured_at) as latest, COUNT(*) as count 
+       FROM trading_prices 
+       GROUP BY coin`
+    );
+    
+    for (const row of priceResult.rows) {
       const latest = new Date(row.latest);
       const age = now - latest;
       const isStale = age > staleThreshold;
@@ -251,6 +256,45 @@ app.get('/api/trading/health', async (req, res) => {
       if (isStale) {
         health.issues.push(`${row.coin} data is stale (${Math.round(age/60000)}m old)`);
       }
+    }
+    
+    // Get orchestrator task status
+    try {
+      const taskResult = await tradingPool.query(
+        `SELECT MAX(created_at) as last_run 
+         FROM trading_signals 
+         WHERE created_at > NOW() - INTERVAL '1 hour'`
+      );
+      const lastSignalTime = taskResult.rows[0]?.last_run;
+      const minutesSinceSignal = lastSignalTime ? 
+        Math.round((now - new Date(lastSignalTime)) / 60000) : null;
+      
+      health.orchestrator = {
+        taskStatus: {
+          LastRunTime: lastSignalTime ? `/Date(${new Date(lastSignalTime).getTime()})/` : null
+        }
+      };
+      
+      health.tradeState = {
+        minutesSinceUpdate: minutesSinceSignal
+      };
+    } catch (e) {
+      console.error('Orchestrator status check error:', e);
+    }
+    
+    // Get last signal
+    try {
+      const signalResult = await tradingPool.query(
+        `SELECT coin, action, confidence, created_at 
+         FROM trading_signals 
+         ORDER BY created_at DESC 
+         LIMIT 1`
+      );
+      if (signalResult.rows.length > 0) {
+        health.lastSignal = signalResult.rows[0];
+      }
+    } catch (e) {
+      console.error('Last signal check error:', e);
     }
     
     if (health.issues.length > 0) {
@@ -287,7 +331,7 @@ app.get('/api/trading/positions', async (req, res) => {
       }
       try {
         const positions = JSON.parse(output);
-        res.json(positions);
+        res.json({ positions: positions });
       } catch (e) {
         console.error('JSON parse error:', e);
         res.status(500).json({ error: 'Invalid response from Python script' });
@@ -302,6 +346,7 @@ app.get('/api/trading/positions', async (req, res) => {
 // Account info endpoint
 app.get('/api/trading/account', async (req, res) => {
   try {
+    // First, get account balances from Python script
     const scriptPath = path.join(PROJECT_ROOT, 'get_account_info.py');
     
     const pythonProcess = spawn(PYTHON_PATH, [scriptPath], {
@@ -315,15 +360,68 @@ app.get('/api/trading/account', async (req, res) => {
     pythonProcess.stdout.on('data', (data) => { output += data.toString(); });
     pythonProcess.stderr.on('data', (data) => { errorOutput += data.toString(); });
     
-    pythonProcess.on('close', (code) => {
+    pythonProcess.on('close', async (code) => {
       if (code !== 0) {
         console.error('Account info error:', errorOutput);
         return res.status(500).json({ error: 'Failed to fetch account info' });
       }
       try {
         const accountInfo = JSON.parse(output);
-        res.json(accountInfo);
+        
+        // Load trading settings from risk_config.json
+        const riskConfigPath = path.join(PROJECT_ROOT, 'risk_config.json');
+        let settings = {};
+        try {
+          const data = await fsp.readFile(riskConfigPath, 'utf8');
+          settings = JSON.parse(data);
+          console.log('[API] Loaded risk_config.json, tradingEnabled:', settings.tradingEnabled);
+        } catch (e) {
+          console.log('[API] Could not load risk_config.json:', e.message);
+        }
+        
+        // Load wallet settings from .env file (source of truth for wallets)
+        const envPath = path.join(PROJECT_ROOT, '.env');
+        let envSettings = {};
+        try {
+          const envData = await fsp.readFile(envPath, 'utf8');
+          for (const line of envData.split('\n')) {
+            if (line.includes('=') && !line.startsWith('#')) {
+              const [key, ...valueParts] = line.split('=');
+              envSettings[key.trim()] = valueParts.join('=').trim();
+            }
+          }
+        } catch (e) {
+          console.log('[API] Could not load .env:', e.message);
+        }
+        
+        // Determine environment
+        const env = settings.environment || 'testnet';
+        
+        // Merge account info with settings (use explicit null/undefined checks)
+        // Wallet values come from .env (source of truth), other settings from risk_config.json
+        const merged = {
+          ...accountInfo,
+          tradingEnabled: settings.tradingEnabled !== undefined ? settings.tradingEnabled : false,
+          leverage: settings.leverage !== undefined ? settings.leverage : 3,
+          stopLoss: settings.stopLoss !== undefined ? settings.stopLoss : 5,
+          takeProfit: settings.takeProfit !== undefined ? settings.takeProfit : 3,
+          cooldownMinutes: settings.cooldownMinutes !== undefined ? settings.cooldownMinutes : 30,
+          allowMultiplePositions: settings.allowMultiplePositions !== undefined ? settings.allowMultiplePositions : false,
+          positionSizePct: settings.positionSizePct !== undefined ? settings.positionSizePct : 2.0,
+          environment: env,
+          // Wallet values from .env (source of truth)
+          swingMainWallet: envSettings[`HYPERLIQUID_SWING_${env.toUpperCase()}_MAIN_WALLET`] || '',
+          swingAgentWallet: envSettings[`HYPERLIQUID_SWING_${env.toUpperCase()}_AGENT_WALLET`] || '',
+          swingAgentPrivateKey: envSettings[`HYPERLIQUID_SWING_${env.toUpperCase()}_AGENT_PRIVATE_KEY`] || '',
+          scalpMainWallet: envSettings[`HYPERLIQUID_SCALP_${env.toUpperCase()}_MAIN_WALLET`] || '',
+          scalpAgentWallet: envSettings[`HYPERLIQUID_SCALP_${env.toUpperCase()}_AGENT_WALLET`] || '',
+          scalpAgentPrivateKey: envSettings[`HYPERLIQUID_SCALP_${env.toUpperCase()}_AGENT_PRIVATE_KEY`] || '',
+        };
+        
+        console.log('[API] Returning merged data, tradingEnabled:', merged.tradingEnabled);
+        res.json(merged);
       } catch (e) {
+        console.error('[API] Error processing account info:', e);
         res.status(500).json({ error: 'Invalid response format' });
       }
     });
@@ -355,12 +453,51 @@ app.post('/api/trading/account', async (req, res) => {
       updatedAt: new Date().toISOString()
     };
     
-    // Write back
+    // Write back to risk_config.json
     await fsp.writeFile(riskConfigPath, JSON.stringify(updatedConfig, null, 2));
     
-    // Update .env with wallet addresses (4 wallets for swing/scalp separation)
+    // Also sync to .account_settings.json (used by orchestrator and signal_integrator)
+    const accountSettingsPath = path.join(PROJECT_ROOT, '.account_settings.json');
+    let accountSettings = {};
+    try {
+      const data = await fsp.readFile(accountSettingsPath, 'utf8');
+      accountSettings = JSON.parse(data);
+    } catch (e) {
+      // File doesn't exist, start fresh
+    }
+    
+    // Map dashboard settings to account settings format
+    const updatedAccountSettings = {
+      ...accountSettings,
+      tradingEnabled: settings.tradingEnabled ?? accountSettings.tradingEnabled ?? false,
+      cooldownMinutes: settings.cooldownMinutes ?? accountSettings.cooldownMinutes ?? 30,
+      allowMultiplePositions: settings.allowMultiplePositions ?? accountSettings.allowMultiplePositions ?? false,
+      leverage: settings.leverage ?? accountSettings.leverage ?? 3,
+      stopLoss: settings.stopLoss ?? accountSettings.stopLoss ?? 5,
+      takeProfit: settings.takeProfit ?? accountSettings.takeProfit ?? 3,
+      positionSizePct: settings.positionSizePct ?? accountSettings.positionSizePct ?? 2,
+      environment: settings.environment ?? accountSettings.environment ?? 'testnet',
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Update wallet addresses in account settings if provided
+    const env = updatedAccountSettings.environment;
+    if (!updatedAccountSettings[env]) {
+      updatedAccountSettings[env] = {};
+    }
+    if (settings.swingMainWallet) {
+      updatedAccountSettings[env].mainWalletAddress = settings.swingMainWallet;
+    }
+    if (settings.swingAgentWallet) {
+      updatedAccountSettings[env].walletAddress = settings.swingAgentWallet;
+    }
+    
+    await fsp.writeFile(accountSettingsPath, JSON.stringify(updatedAccountSettings, null, 2));
+    
+    // Update .env with wallet addresses and private keys (4 wallets for swing/scalp separation)
     const hasWalletChanges = settings.swingMainWallet || settings.swingAgentWallet || 
-                             settings.scalpMainWallet || settings.scalpAgentWallet;
+                             settings.scalpMainWallet || settings.scalpAgentWallet ||
+                             settings.swingAgentPrivateKey || settings.scalpAgentPrivateKey;
     
     if (hasWalletChanges) {
       const envPath = path.join(PROJECT_ROOT, '.env');
@@ -375,8 +512,10 @@ app.post('/api/trading/account', async (req, res) => {
       const updated = {
         swingMain: false,
         swingAgent: false,
+        swingAgentKey: false,
         scalpMain: false,
-        scalpAgent: false
+        scalpAgent: false,
+        scalpAgentKey: false
       };
       
       // Update or add wallet addresses in .env
@@ -404,6 +543,16 @@ app.post('/api/trading/account', async (req, res) => {
           updated.scalpAgent = true;
         } else if (line.startsWith('HYPERLIQUID_SCALP_TESTNET_AGENT_WALLET=') && settings.scalpAgentWallet) {
           newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_AGENT_WALLET=${settings.scalpAgentWallet}`);
+        } else if (line.startsWith('HYPERLIQUID_SWING_MAINNET_AGENT_PRIVATE_KEY=') && settings.swingAgentPrivateKey) {
+          newEnvLines.push(`HYPERLIQUID_SWING_MAINNET_AGENT_PRIVATE_KEY=${settings.swingAgentPrivateKey}`);
+          updated.swingAgentKey = true;
+        } else if (line.startsWith('HYPERLIQUID_SWING_TESTNET_AGENT_PRIVATE_KEY=') && settings.swingAgentPrivateKey) {
+          newEnvLines.push(`HYPERLIQUID_SWING_TESTNET_AGENT_PRIVATE_KEY=${settings.swingAgentPrivateKey}`);
+        } else if (line.startsWith('HYPERLIQUID_SCALP_MAINNET_AGENT_PRIVATE_KEY=') && settings.scalpAgentPrivateKey) {
+          newEnvLines.push(`HYPERLIQUID_SCALP_MAINNET_AGENT_PRIVATE_KEY=${settings.scalpAgentPrivateKey}`);
+          updated.scalpAgentKey = true;
+        } else if (line.startsWith('HYPERLIQUID_SCALP_TESTNET_AGENT_PRIVATE_KEY=') && settings.scalpAgentPrivateKey) {
+          newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_AGENT_PRIVATE_KEY=${settings.scalpAgentPrivateKey}`);
         } else {
           newEnvLines.push(line);
         }
@@ -425,6 +574,14 @@ app.post('/api/trading/account', async (req, res) => {
       if (settings.scalpAgentWallet && !updated.scalpAgent) {
         newEnvLines.push(`HYPERLIQUID_SCALP_MAINNET_AGENT_WALLET=${settings.scalpAgentWallet}`);
         newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_AGENT_WALLET=${settings.scalpAgentWallet}`);
+      }
+      if (settings.swingAgentPrivateKey && !updated.swingAgentKey) {
+        newEnvLines.push(`HYPERLIQUID_SWING_MAINNET_AGENT_PRIVATE_KEY=${settings.swingAgentPrivateKey}`);
+        newEnvLines.push(`HYPERLIQUID_SWING_TESTNET_AGENT_PRIVATE_KEY=${settings.swingAgentPrivateKey}`);
+      }
+      if (settings.scalpAgentPrivateKey && !updated.scalpAgentKey) {
+        newEnvLines.push(`HYPERLIQUID_SCALP_MAINNET_AGENT_PRIVATE_KEY=${settings.scalpAgentPrivateKey}`);
+        newEnvLines.push(`HYPERLIQUID_SCALP_TESTNET_AGENT_PRIVATE_KEY=${settings.scalpAgentPrivateKey}`);
       }
       
       await fsp.writeFile(envPath, newEnvLines.join('\n'));
@@ -546,9 +703,35 @@ app.post('/api/trading/strategies/:id', async (req, res) => {
 // Trade executions endpoint
 app.get('/api/trading/executions', async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
     const coin = req.query.coin || null;
+    const status = req.query.status || null;
     
+    // Build count query for total
+    let countQuery = `SELECT COUNT(*) as total FROM trade_executions te WHERE 1=1`;
+    const countParams = [];
+    let countParamIndex = 1;
+    
+    if (coin) {
+      countQuery += ` AND te.coin = $${countParamIndex}`;
+      countParams.push(coin);
+      countParamIndex++;
+    }
+    
+    if (status && status !== 'all') {
+      countQuery += ` AND te.status = $${countParamIndex}`;
+      countParams.push(status);
+      countParamIndex++;
+    }
+    
+    // Get total count
+    const countResult = await tradingPool.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+    
+    // Build data query with pagination
     let query = `
       SELECT 
         te.id, te.signal_id, te.coin, te.strategy, te.action, te.confidence,
@@ -570,8 +753,15 @@ app.get('/api/trading/executions', async (req, res) => {
       paramIndex++;
     }
     
-    query += ` ORDER BY te.created_at DESC LIMIT $${paramIndex}`;
+    if (status && status !== 'all') {
+      query += ` AND te.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+    
+    query += ` ORDER BY te.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(limit);
+    params.push(offset);
     
     const result = await tradingPool.query(query, params);
     
@@ -607,7 +797,16 @@ app.get('/api/trading/executions', async (req, res) => {
       };
     });
     
-    res.json({ executions, count: executions.length });
+    res.json({ 
+      executions, 
+      count: executions.length,
+      pagination: {
+        page: page,
+        limit: limit,
+        total: total,
+        totalPages: totalPages
+      }
+    });
   } catch (err) {
     console.error('Executions fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch executions', details: err.message });
@@ -617,9 +816,35 @@ app.get('/api/trading/executions', async (req, res) => {
 // Signals endpoint
 app.get('/api/trading/signals', async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 100;
+    const offset = (page - 1) * limit;
     const coin = req.query.coin || null;
+    const action = req.query.action || null;
     
+    // Build count query for total
+    let countQuery = `SELECT COUNT(*) as total FROM trading_signals WHERE 1=1`;
+    const countParams = [];
+    let countParamIndex = 1;
+    
+    if (coin) {
+      countQuery += ` AND coin = $${countParamIndex}`;
+      countParams.push(coin);
+      countParamIndex++;
+    }
+    
+    if (action && action !== 'ALL') {
+      countQuery += ` AND action = $${countParamIndex}`;
+      countParams.push(action);
+      countParamIndex++;
+    }
+    
+    // Get total count
+    const countResult = await tradingPool.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+    
+    // Build data query with pagination
     let query = `SELECT * FROM trading_signals WHERE 1=1`;
     const params = [];
     let paramIndex = 1;
@@ -630,11 +855,44 @@ app.get('/api/trading/signals', async (req, res) => {
       paramIndex++;
     }
     
-    query += ` ORDER BY created_at DESC LIMIT $${paramIndex}`;
+    if (action && action !== 'ALL') {
+      query += ` AND action = $${paramIndex}`;
+      params.push(action);
+      paramIndex++;
+    }
+    
+    query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(limit);
+    params.push(offset);
     
     const result = await tradingPool.query(query, params);
-    res.json({ signals: result.rows, count: result.rows.length });
+    
+    // Add formatted time to each signal
+    const signals = result.rows.map(row => {
+      const minutesAgo = row.created_at ? (Date.now() - new Date(row.created_at).getTime()) / 60000 : null;
+      const createdAt = new Date(row.created_at);
+      const formattedDate = createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const formattedTime = createdAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      
+      return {
+        ...row,
+        timeAgo: formatTimeAgo(minutesAgo),
+        formattedDate: formattedDate,
+        formattedTime: formattedTime,
+        timestamp: `${formattedDate} ${formattedTime}`
+      };
+    });
+    
+    res.json({ 
+      signals, 
+      count: signals.length,
+      pagination: {
+        page: page,
+        limit: limit,
+        total: total,
+        totalPages: totalPages
+      }
+    });
   } catch (err) {
     console.error('Signals fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch signals', details: err.message });

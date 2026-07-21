@@ -15,20 +15,43 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from hyperliquid.info import Info
 from config_loader import get_swing_credentials, get_scalp_credentials, HYPERLIQUID_ENV
+from db import get_conn
+import psycopg2.extras
 import json
 
 
-def load_local_trade_metadata(wallet_type: str = 'swing'):
-    """Load additional metadata from local trade_state.json for a specific wallet type."""
-    # Each wallet type has its own state file
-    state_file = f'trade_state_{wallet_type}.json'
+def load_trade_metadata_from_db(coin: str, wallet_type: str = 'swing'):
+    """Load trade metadata from database for a specific coin and wallet type."""
     try:
-        if os.path.exists(state_file):
-            with open(state_file, 'r') as f:
-                state = json.load(f)
-            return state.get('open_trades', {})
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get the most recent successful trade for this coin
+        cur.execute("""
+            SELECT te.*, ts.strategy, ts.created_at as signal_time
+            FROM trade_executions te
+            LEFT JOIN trading_signals ts ON te.signal_id = ts.id
+            WHERE te.coin = %s AND te.status = 'success'
+            ORDER BY te.created_at DESC
+            LIMIT 1
+        """, (coin,))
+        
+        trade = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if trade:
+            return {
+                'strategy': trade.get('strategy'),
+                'signal_time': trade.get('signal_time').isoformat() if trade.get('signal_time') else None,
+                'order_placed_time': trade.get('hyperliquid_sent_at').isoformat() if trade.get('hyperliquid_sent_at') else None,
+                'entry_time': trade.get('created_at').isoformat() if trade.get('created_at') else None,
+                'order_id': str(trade.get('hyperliquid_order_id')) if trade.get('hyperliquid_order_id') else None,
+                'sl_order_id': None,  # Not stored in DB yet
+                'tp_order_ids': [],   # Not stored in DB yet
+            }
     except Exception as e:
-        print(f"Warning: Could not load trade state for {wallet_type}: {e}", file=sys.stderr)
+        print(f"Warning: Could not load trade metadata from DB for {coin}: {e}", file=sys.stderr)
     return {}
 
 
@@ -48,20 +71,18 @@ def fetch_positions_for_wallet(creds: dict, wallet_type: str) -> list:
     """Fetch positions from a specific wallet.
     
     Args:
-        creds: Wallet credentials dict with 'wallet', 'api_url'
+        creds: Wallet credentials dict with 'wallet', 'api_url', 'main_wallet'
         wallet_type: 'swing' or 'scalp'
     
     Returns:
         List of position dicts with wallet_type field
     """
     positions = []
-    wallet_address = creds['wallet']
+    # Use main_wallet for fetching positions (positions are held there)
+    wallet_address = creds.get('main_wallet', creds['wallet'])
     api_url = creds['api_url']
     
     try:
-        # Load local metadata for this wallet type
-        local_trades = load_local_trade_metadata(wallet_type)
-        
         info = Info(base_url=api_url)
         state = info.user_state(wallet_address)
         
@@ -90,16 +111,14 @@ def fetch_positions_for_wallet(creds: dict, wallet_type: str) -> list:
                 if margin_used > 0 and position_value > 0:
                     leverage = position_value / margin_used
             
-            # Get local trade metadata if available
-            local_trade = local_trades.get(coin, {})
+            # Get trade metadata from database
+            trade_meta = load_trade_metadata_from_db(coin, wallet_type)
             
             # Calculate SL/TP distances
-            sl_distance = abs(entry - local_trade.get('stop_loss', sl)) / entry * 100 if entry > 0 else 0
-            tp_prices = local_trade.get('take_profits', [])
-            tp_price = tp_prices[0].get('price', tp) if tp_prices else tp
-            tp_distance = abs(tp_price - entry) / entry * 100 if entry > 0 and tp_price > 0 else 0
+            sl_distance = abs(entry - sl) / entry * 100 if entry > 0 and sl > 0 else 0
+            tp_distance = abs(tp - entry) / entry * 100 if entry > 0 and tp > 0 else 0
             
-            # Build position object with merged data
+            # Build position object with merged data from DB
             position = {
                 'id': f'{coin}_{wallet_type.upper()}',
                 'coin': coin,
@@ -107,23 +126,21 @@ def fetch_positions_for_wallet(creds: dict, wallet_type: str) -> list:
                 'size': abs(size),
                 'entryPrice': entry,
                 'markPrice': mark,
-                'stopLoss': local_trade.get('stop_loss', sl),
-                'stopLossDistance': round(sl_distance, 2),
-                'takeProfit': tp_price,
-                'takeProfitDistance': round(tp_distance, 2),
+                'stopLoss': sl if sl > 0 else None,
+                'stopLossDistance': round(sl_distance, 2) if sl > 0 else 0,
+                'takeProfit': tp if tp > 0 else None,
+                'takeProfitDistance': round(tp_distance, 2) if tp > 0 else 0,
                 'unrealizedPnl': pnl,
                 'leverage': round(leverage, 1) if leverage > 0 else 0,
                 'openedAt': p.get('openedAt', None),
-                # Local metadata
-                'signalTime': format_time(local_trade.get('signal_time')),
-                'orderPlacedTime': format_time(local_trade.get('order_placed_time')),
-                'entryTime': format_time(local_trade.get('entry_time')),
-                'orderId': local_trade.get('order_id'),
-                'slOrderId': local_trade.get('sl_order_id'),
-                'tpOrderIds': local_trade.get('tp_order_ids', []),
-                'marginRequired': local_trade.get('margin_required'),
-                'riskAmount': local_trade.get('risk_amount'),
-                'strategy': local_trade.get('strategy'),
+                # Metadata from database
+                'signalTime': format_time(trade_meta.get('signal_time')),
+                'orderPlacedTime': format_time(trade_meta.get('order_placed_time')),
+                'entryTime': format_time(trade_meta.get('entry_time')),
+                'orderId': trade_meta.get('order_id'),
+                'slOrderId': trade_meta.get('sl_order_id'),
+                'tpOrderIds': trade_meta.get('tp_order_ids', []),
+                'strategy': trade_meta.get('strategy'),
                 # Wallet separation metadata
                 'walletType': wallet_type,
                 'walletAddress': wallet_address[:10] + '...' + wallet_address[-6:] if len(wallet_address) > 16 else wallet_address,
