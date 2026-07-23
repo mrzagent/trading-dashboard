@@ -76,3 +76,6 @@ data/
 tmp/
 temp/
 *.tmp
+.latest_report.txt
+.latest_report.txt
+.latest_report.txt

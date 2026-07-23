@@ -1,197 +1,44 @@
 {
   "open_trades": {
-    "BTC": {
-      "symbol": "BTC",
-      "side": "short",
-      "entry_price": 66262.5,
-      "position_size": 0.00091,
-      "original_size": 0.00091,
-      "position_value": 60.298875,
-      "original_value": 60.298875,
-      "margin_required": 20.099625,
-      "leverage": 3,
-      "stop_loss": 67256.0,
-      "take_profits": [
-        {
-          "label": "TP1",
-          "level_pct": 0.03,
-          "price": 64275.0,
-          "close_pct": 1.0,
-          "hit": false
-        }
-      ],
-      "risk_amount": 15.562947461024628,
-      "order_id": 56790596484,
-      "status": "open",
-      "signal_time": "2026-07-21T14:40:22.295444",
-      "order_placed_time": "2026-07-21T14:40:22.295444",
-      "entry_time": "2026-07-21T14:40:22.295444",
-      "exit_time": null,
-      "exit_price": null,
-      "pnl": 0.0,
-      "exit_reason": null,
-      "partial_closes": [],
-      "remaining_pct": 1.0,
-      "sl_order_id": 56790597290,
-      "tp_order_ids": [
-        56790598152
-      ],
-      "strategy": "volume_spike"
-    },
-    "SOL": {
-      "symbol": "SOL",
-      "side": "long",
-      "entry_price": 77.6815,
-      "position_size": 0.77,
-      "original_size": 0.77,
-      "position_value": 59.814755,
-      "original_value": 59.814755,
-      "margin_required": 19.938251666666666,
-      "leverage": 3,
-      "stop_loss": 76.52,
-      "take_profits": [
-        {
-          "label": "TP1",
-          "level_pct": 0.03,
-          "price": 80.01,
-          "close_pct": 1.0,
-          "hit": false
-        }
-      ],
-      "risk_amount": 10.630568386,
-      "order_id": 56853346088,
-      "status": "open",
-      "signal_time": "2026-07-22T23:03:34.719657",
-      "order_placed_time": "2026-07-22T23:03:34.719657",
-      "entry_time": "2026-07-22T23:03:34.719657",
-      "exit_time": null,
-      "exit_price": null,
-      "pnl": 0.0,
-      "exit_reason": null,
-      "partial_closes": [],
-      "remaining_pct": 1.0,
-      "sl_order_id": 56853348878,
-      "tp_order_ids": [
-        56853350241
-      ],
-      "strategy": "fvg_proximity"
-    },
     "ETH": {
       "symbol": "ETH",
-      "side": "short",
-      "entry_price": 1925.85,
-      "position_size": 0.0312,
-      "original_size": 0.0312,
-      "position_value": 60.08651999999999,
-      "original_value": 60.08651999999999,
-      "margin_required": 20.02884,
+      "side": "long",
+      "entry_price": 1915.85,
+      "position_size": 0.0314,
+      "original_size": 0.0314,
+      "position_value": 60.157689999999995,
+      "original_value": 60.157689999999995,
+      "margin_required": 20.05256333333333,
       "leverage": 3,
-      "stop_loss": 1954.7,
+      "stop_loss": 1887.1,
       "take_profits": [
         {
           "label": "TP1",
           "level_pct": 0.03,
-          "price": 1868.1,
+          "price": 1973.3,
           "close_pct": 1.0,
           "hit": false
         }
       ],
-      "risk_amount": 10.853493070968904,
-      "order_id": 56872754030,
+      "risk_amount": 12.449057543050415,
+      "order_id": 56873915103,
       "status": "open",
-      "signal_time": "2026-07-23T09:50:18.240575",
-      "order_placed_time": "2026-07-23T09:50:18.240575",
-      "entry_time": "2026-07-23T09:50:18.240575",
+      "signal_time": "2026-07-23T10:25:22.390177",
+      "order_placed_time": "2026-07-23T10:25:22.390177",
+      "entry_time": "2026-07-23T10:25:22.390177",
       "exit_time": null,
       "exit_price": null,
       "pnl": 0.0,
       "exit_reason": null,
       "partial_closes": [],
       "remaining_pct": 1.0,
-      "sl_order_id": 56872754682,
+      "sl_order_id": 56873915787,
       "tp_order_ids": [
-        56872755332
+        56873916851
       ],
       "strategy": "volume_spike"
     }
   },
-  "trade_history": [
-    {
-      "symbol": "ETH",
-      "side": "long",
-      "entry_price": 1868.65,
-      "position_size": 0.0321,
-      "original_size": 0.0321,
-      "position_value": 59.983664999999995,
-      "original_value": 59.983664999999995,
-      "margin_required": 19.994555,
-      "leverage": 3,
-      "stop_loss": 1840.6,
-      "take_profits": [
-        {
-          "label": "TP1",
-          "level_pct": 0.03,
-          "price": 1924.7,
-          "close_pct": 1.0,
-          "hit": false
-        }
-      ],
-      "risk_amount": 10.2,
-      "order_id": 56740266932,
-      "status": "closed",
-      "signal_time": "2026-07-20T13:40:17.728098",
-      "order_placed_time": "2026-07-20T13:40:17.728098",
-      "entry_time": "2026-07-20T13:40:17.728098",
-      "exit_time": "2026-07-22T22:45:00.000000",
-      "exit_price": null,
-      "pnl": 0.0,
-      "exit_reason": "hyperliquid_closed_sync",
-      "partial_closes": [],
-      "remaining_pct": 1.0,
-      "sl_order_id": 56740268133,
-      "tp_order_ids": [
-        56740269934
-      ],
-      "strategy": "fvg_proximity"
-    },
-    {
-      "symbol": "SOL",
-      "side": "long",
-      "entry_price": 76.3445,
-      "position_size": 0.79,
-      "original_size": 0.79,
-      "position_value": 60.312155,
-      "original_value": 60.312155,
-      "margin_required": 20.104051666666667,
-      "leverage": 3,
-      "stop_loss": 75.2,
-      "take_profits": [
-        {
-          "label": "TP1",
-          "level_pct": 0.03,
-          "price": 78.63,
-          "close_pct": 1.0,
-          "hit": false
-        }
-      ],
-      "risk_amount": 15.528943106950859,
-      "order_id": 56740874180,
-      "status": "closed",
-      "signal_time": "2026-07-20T14:00:16.277160",
-      "order_placed_time": "2026-07-20T14:00:16.277160",
-      "entry_time": "2026-07-20T14:00:16.277160",
-      "exit_time": "2026-07-22T22:45:00.000000",
-      "exit_price": null,
-      "pnl": 0.0,
-      "exit_reason": "hyperliquid_closed_sync",
-      "partial_closes": [],
-      "remaining_pct": 1.0,
-      "sl_order_id": 56740875858,
-      "tp_order_ids": [
-        56740876794
-      ],
-      "strategy": "volume_spike"
-    }
-  ],
-  "saved_at": "2026-07-23T09:50:18.240629"
+  "trade_history": [],
+  "saved_at": "2026-07-23T10:25:22.390209"
 }

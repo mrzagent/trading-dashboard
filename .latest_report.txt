@@ -1,14 +1,31 @@
 TRADING REPORT
-Thursday, July 23 - 09:05 (Bucharest)
+Thursday, July 23 - 11:03 (Bucharest)
 
-BTC $65,672
-ETH $1,922
-SOL $77.49
+PRICES
+  BTC $65,390
+  ETH $1,914
+  SOL $77.08
 
-Latest Signals (Last Hour)
-BTC | No Signal
-ETH | No Signal
-SOL | No Signal
+LATEST SIGNALS (Last Hour)
+  BTC | BUY @ 100% | volume_spike
+  ETH | SELL @ 100% | volume_spike
+  SOL | BUY @ 100% | volume_spike
 
+SWING WALLET (Balance: $17.76)
 Open Positions: 1
-ETH | long | 3x | $1,591 | PnL - $10.76
+  ETH | SHORT | 3x | Entry $1,943 | PnL +$0.63
+
+SCALP WALLET (Balance: $39.76)
+Open Positions: 3
+  SOL | LONG | 3x | Entry $77.68 | PnL -$0.46
+  BTC | SHORT | 3x | Entry $66,133 | PnL +$0.66
+  ETH | LONG | 3x | Entry $1,922 | PnL -$0.00
+
+TOTAL: 4 positions | $57.52 balance | PnL +$0.82
+
+RECENT TRADES
+  [SKIPPED] SOL SELL (volume_spike) [SCALP]
+  [SKIPPED] SOL BUY (fvg_proximity) [SCALP]
+  [SKIPPED] SOL BUY (volume_spike) [SCALP]
+  [SKIPPED] BTC SELL (volume_spike) [SCALP]
+  [SKIPPED] SOL SELL (volume_spike) [SCALP]

@@ -83,16 +83,23 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
         # Total account value = perp + spot
         account_value = perp_account_value + spot_usdc
         
-        # Get portfolio data for PnL
+        # Get portfolio data for PnL (24h, 7d, 30d)
         pnl_24h = 0.0
+        pnl_7d = 0.0
+        pnl_30d = 0.0
         try:
             portfolio = hl_api_post(api_url, {"type": "portfolio", "user": main_wallet})
             # portfolio is a list of [period, data] pairs
             for period_name, period_data in portfolio:
-                if period_name == "day":
-                    pnl_hist = period_data.get("pnlHistory", [])
-                    if pnl_hist and len(pnl_hist) >= 2:
-                        pnl_24h = float(pnl_hist[-1][1]) - float(pnl_hist[0][1])
+                pnl_hist = period_data.get("pnlHistory", [])
+                if pnl_hist and len(pnl_hist) >= 2:
+                    pnl_value = float(pnl_hist[-1][1]) - float(pnl_hist[0][1])
+                    if period_name == "day":
+                        pnl_24h = pnl_value
+                    elif period_name == "week":
+                        pnl_7d = pnl_value
+                    elif period_name == "month":
+                        pnl_30d = pnl_value
         except Exception:
             pass
         
@@ -130,6 +137,8 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
             'unrealizedPnl': unrealized_pnl,
             'totalMargin': total_margin_used,
             'pnl24h': pnl_24h,
+            'pnl7d': pnl_7d,
+            'pnl30d': pnl_30d,
         }
         
     except Exception as e:
@@ -147,6 +156,8 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
             'unrealizedPnl': 0,
             'totalMargin': 0,
             'pnl24h': 0,
+            'pnl7d': 0,
+            'pnl30d': 0,
             'error': str(e)
         }
 
@@ -170,6 +181,8 @@ def fetch_all_account_info():
         total_unrealized = swing_info['unrealizedPnl'] + scalp_info['unrealizedPnl']
         total_margin = swing_info['totalMargin'] + scalp_info['totalMargin']
         total_pnl_24h = (swing_info.get('pnl24h', 0) or 0) + (scalp_info.get('pnl24h', 0) or 0)
+        total_pnl_7d = (swing_info.get('pnl7d', 0) or 0) + (scalp_info.get('pnl7d', 0) or 0)
+        total_pnl_30d = (swing_info.get('pnl30d', 0) or 0) + (scalp_info.get('pnl30d', 0) or 0)
         
         # Load risk config defaults
         defaults = load_risk_config_defaults()
@@ -188,8 +201,8 @@ def fetch_all_account_info():
             'unrealizedPnl': total_unrealized,
             'totalMargin': total_margin,
             'pnl24h': total_pnl_24h if total_pnl_24h != 0 else None,
-            'pnl7d': None,  # Would need separate calculation
-            'pnl30d': None,  # Would need separate calculation
+            'pnl7d': total_pnl_7d if total_pnl_7d != 0 else None,
+            'pnl30d': total_pnl_30d if total_pnl_30d != 0 else None,
             'leverage': defaults['leverage'],
             'stopLoss': defaults['stopLoss'],
             'takeProfit': defaults['takeProfit'],

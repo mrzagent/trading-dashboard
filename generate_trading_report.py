@@ -4,13 +4,23 @@ generate_trading_report.py — Generate trading report for Telegram
 """
 import sys
 import os
+import json
+import requests
 from datetime import datetime, timedelta
 
-sys.path.insert(0, r'D:\\dev\\trading-dashboard')
-os.chdir(r'D:\\dev\\trading-dashboard')
+sys.path.insert(0, r'D:\dev\trading-dashboard')
+os.chdir(r'D:\dev\trading-dashboard')
 
-REPORT_FILE = r'D:\\dev\\trading-dashboard\.latest_report.txt'
+REPORT_FILE = r'D:\dev\trading-dashboard\.latest_report.txt'
 COINS = ['BTC', 'ETH', 'SOL']
+
+# Load settings directly to avoid import issues
+SETTINGS_PATH = r'D:\dev\trading-dashboard\risk_config.json'
+
+def load_settings():
+    """Load settings from risk_config.json"""
+    with open(SETTINGS_PATH, 'r') as f:
+        return json.load(f)
 
 def get_latest_prices():
     """Get latest prices from database"""
@@ -61,54 +71,141 @@ def get_latest_signals():
     conn.close()
     return signals
 
-def get_open_positions():
-    """Get open positions from trade executor with real-time PnL"""
-    from trade_executor import TradeExecutor, RiskConfig
-    from hyperliquid.info import Info
-    import os
-    
-    # Load environment settings
-    from signal_integrator import load_account_settings
-    settings = load_account_settings()
-    env = settings.get('environment', 'testnet')
-    env_config = settings.get(env, {})
-    base_url = env_config.get('apiUrl', 'https://api.hyperliquid-testnet.xyz')
-    
-    executor = TradeExecutor(RiskConfig())
+def get_wallet_positions(wallet_address, base_url="https://api.hyperliquid-testnet.xyz"):
+    """Get open positions for a specific wallet from HyperLiquid API"""
     positions = []
+    account_value = 0.0
     
-    # Get current prices from HyperLiquid
+    if not wallet_address:
+        return positions, account_value
+    
     try:
-        info = Info(base_url, skip_ws=True)
-        all_mids = info.all_mids()
-        current_prices = {k: float(v) for k, v in all_mids.items()}
-    except:
-        current_prices = {}
-    
-    for symbol, trade in executor.open_trades.items():
-        # Calculate real-time PnL
-        mark_price = current_prices.get(symbol, trade.entry_price)
-        if trade.side == 'LONG':
-            pnl = (mark_price - trade.entry_price) * trade.position_size
-        else:
-            pnl = (trade.entry_price - mark_price) * trade.position_size
+        url = f"{base_url}/info"
+        payload = {
+            "type": "clearinghouseState",
+            "user": wallet_address
+        }
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status()
+        state = response.json()
         
-        positions.append({
-            'symbol': symbol,
-            'side': trade.side,
-            'leverage': trade.leverage,
-            'entry': trade.entry_price,
-            'mark': mark_price,
-            'pnl': pnl
+        # Get current prices for PnL calculation
+        price_payload = {"type": "allMids"}
+        price_response = requests.post(url, json=price_payload, timeout=10)
+        current_prices = {}
+        if price_response.status_code == 200:
+            price_data = price_response.json()
+            current_prices = {k: float(v) for k, v in price_data.items()}
+        
+        # Get account value
+        margin_summary = state.get('marginSummary', {})
+        account_value = float(margin_summary.get('accountValue', 0))
+        
+        # Parse positions
+        asset_positions = state.get('assetPositions', [])
+        for pos in asset_positions:
+            position_data = pos.get('position', {})
+            coin = position_data.get('coin')
+            size = float(position_data.get('szi', 0))
+            entry_px = float(position_data.get('entryPx', 0))
+            unrealized_pnl = float(position_data.get('unrealizedPnl', 0))
+            leverage_data = position_data.get('leverage', {})
+            leverage = leverage_data.get('value', 3) if isinstance(leverage_data, dict) else 3
+            
+            # Skip dust positions
+            if abs(size) < 0.0001:
+                continue
+            
+            # Determine side
+            side = 'LONG' if size > 0 else 'SHORT'
+            
+            positions.append({
+                'symbol': coin,
+                'side': side,
+                'leverage': leverage,
+                'entry': entry_px,
+                'mark': current_prices.get(coin, entry_px),
+                'pnl': unrealized_pnl,
+                'size': abs(size)
+            })
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch positions for {wallet_address}: {e}")
+    
+    return positions, account_value
+
+def get_all_positions():
+    """Get positions from both swing and scalp wallets"""
+    settings = load_settings()
+    
+    # Get both wallet addresses
+    swing_wallet = settings.get('swingMainWallet', '')
+    scalp_wallet = settings.get('scalpMainWallet', '')
+    environment = settings.get('environment', 'testnet')
+    
+    base_url = "https://api.hyperliquid-testnet.xyz"
+    if environment == 'mainnet':
+        base_url = "https://api.hyperliquid.xyz"
+    
+    # Fetch positions for both wallets
+    swing_positions, swing_balance = get_wallet_positions(swing_wallet, base_url)
+    scalp_positions, scalp_balance = get_wallet_positions(scalp_wallet, base_url)
+    
+    return {
+        'swing': {
+            'positions': swing_positions,
+            'balance': swing_balance,
+            'wallet': swing_wallet
+        },
+        'scalp': {
+            'positions': scalp_positions,
+            'balance': scalp_balance,
+            'wallet': scalp_wallet
+        }
+    }
+
+def get_recent_trades(limit=5):
+    """Get recent trade executions from database"""
+    from db import get_conn
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT coin, strategy, action, status, wallet_type, created_at
+        FROM trade_executions
+        ORDER BY created_at DESC
+        LIMIT %s
+    """, (limit,))
+    
+    trades = []
+    for row in cur.fetchall():
+        trades.append({
+            'coin': row[0],
+            'strategy': row[1],
+            'action': row[2],
+            'status': row[3],
+            'wallet_type': row[4] or 'unknown',
+            'time': row[5]
         })
     
-    return positions
+    conn.close()
+    return trades
+
+def format_position(pos):
+    """Format a single position for display"""
+    pnl_str = f"PnL {'+' if pos['pnl'] >= 0 else '-'}${abs(pos['pnl']):.2f}"
+    if pos['entry'] >= 1000:
+        entry_str = f"${pos['entry']:,.0f}"
+    else:
+        entry_str = f"${pos['entry']:.2f}"
+    return f"  {pos['symbol']} | {pos['side']} | {pos['leverage']}x | Entry {entry_str} | {pnl_str}"
 
 def generate_report():
     """Generate trading report in the agreed format"""
     prices = get_latest_prices()
     signals = get_latest_signals()
-    positions = get_open_positions()
+    wallet_data = get_all_positions()
+    recent_trades = get_recent_trades(5)
     
     now = datetime.now()
     
@@ -120,15 +217,16 @@ def generate_report():
     lines.append("")
     
     # Prices
+    lines.append("PRICES")
     for coin in COINS:
         price = prices.get(coin, 0)
         if price >= 1000:
-            lines.append(f"{coin} ${price:,.0f}")
+            lines.append(f"  {coin} ${price:,.0f}")
         else:
-            lines.append(f"{coin} ${price:.2f}")
+            lines.append(f"  {coin} ${price:.2f}")
     
     lines.append("")
-    lines.append("Latest Signals (Last Hour)")
+    lines.append("LATEST SIGNALS (Last Hour)")
     
     for coin in COINS:
         sig = signals.get(coin)
@@ -137,22 +235,54 @@ def generate_report():
             conf = sig['confidence']
             strategy = sig['strategy']
             if action in ['BUY', 'SELL'] and conf >= 0.5:
-                lines.append(f"{coin} | {action} @ {conf:.0%} | {strategy}")
+                lines.append(f"  {coin} | {action} @ {conf:.0%} | {strategy}")
             else:
-                lines.append(f"{coin} | {action} @ {conf:.0%} | {strategy}")
+                lines.append(f"  {coin} | {action} @ {conf:.0%} | {strategy}")
         else:
-            lines.append(f"{coin} | No Signal")
+            lines.append(f"  {coin} | No Signal")
     
+    # Swing Wallet Positions
+    swing_data = wallet_data['swing']
     lines.append("")
-    lines.append(f"Open Positions: {len(positions)}")
+    lines.append(f"SWING WALLET (Balance: ${swing_data['balance']:.2f})")
+    lines.append(f"Open Positions: {len(swing_data['positions'])}")
     
-    for pos in positions:
-        pnl_str = f"PnL {'+' if pos['pnl'] >= 0 else '-'} ${abs(pos['pnl']):.2f}"
-        if pos['entry'] >= 1000:
-            entry_str = f"${pos['entry']:,.0f}"
-        else:
-            entry_str = f"${pos['entry']:.2f}"
-        lines.append(f"{pos['symbol']} | {pos['side']} | {pos['leverage']}x | {entry_str} | {pnl_str}")
+    if swing_data['positions']:
+        for pos in swing_data['positions']:
+            lines.append(format_position(pos))
+    else:
+        lines.append("  No open positions")
+    
+    # Scalp Wallet Positions
+    scalp_data = wallet_data['scalp']
+    lines.append("")
+    lines.append(f"SCALP WALLET (Balance: ${scalp_data['balance']:.2f})")
+    lines.append(f"Open Positions: {len(scalp_data['positions'])}")
+    
+    if scalp_data['positions']:
+        for pos in scalp_data['positions']:
+            lines.append(format_position(pos))
+    else:
+        lines.append("  No open positions")
+    
+    # Total summary
+    total_positions = len(swing_data['positions']) + len(scalp_data['positions'])
+    total_balance = swing_data['balance'] + scalp_data['balance']
+    total_pnl = sum(p['pnl'] for p in swing_data['positions']) + sum(p['pnl'] for p in scalp_data['positions'])
+    pnl_str = f"{'+' if total_pnl >= 0 else '-'}${abs(total_pnl):.2f}"
+    lines.append("")
+    lines.append(f"TOTAL: {total_positions} positions | ${total_balance:.2f} balance | PnL {pnl_str}")
+    
+    # Recent Trades
+    lines.append("")
+    lines.append("RECENT TRADES")
+    if recent_trades:
+        for trade in recent_trades:
+            status_str = "OK" if trade['status'] == 'success' else "SKIPPED" if trade['status'] == 'skipped' else "FAIL"
+            wallet_label = trade['wallet_type'].upper() if trade['wallet_type'] else "?"
+            lines.append(f"  [{status_str}] {trade['coin']} {trade['action']} ({trade['strategy']}) [{wallet_label}]")
+    else:
+        lines.append("  No recent trades")
     
     report = "\n".join(lines)
     

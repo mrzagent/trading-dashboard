@@ -2078,5 +2078,21 @@
     "confidence": 0.5411539039299291,
     "strategy": "volume_spike",
     "timestamp": "2026-07-23T09:50:18.248064"
+  },
+  {
+    "coin": "ETH",
+    "action": "BUY",
+    "side": "long",
+    "entry_price": 1915.85,
+    "position_size": 0.0314,
+    "position_value": 60.157689999999995,
+    "margin_required": 20.05256333333333,
+    "leverage": 3,
+    "stop_loss": 1887.1,
+    "take_profit": 1973.3,
+    "risk_amount": 12.449057543050415,
+    "confidence": 0.6205288313290164,
+    "strategy": "volume_spike",
+    "timestamp": "2026-07-23T10:25:22.395552"
   }
 ]

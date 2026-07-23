@@ -5,11 +5,11 @@
       "side": "SHORT",
       "size": 0.0262,
       "entry_price": 1942.9,
-      "mark_price": 1930.3999999999999,
-      "unrealized_pnl": 0.3275,
+      "mark_price": 1927.7,
+      "unrealized_pnl": 0.39824,
       "stop_loss": null,
       "take_profit": null,
-      "position_value": 50.57648
+      "position_value": 50.50574
     }
   },
   "alerts_sent": [
