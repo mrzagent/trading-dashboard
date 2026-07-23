@@ -5,16 +5,14 @@
       "side": "SHORT",
       "size": 0.0262,
       "entry_price": 1942.9,
-      "mark_price": 1942.9999999999998,
-      "unrealized_pnl": -0.00262,
+      "mark_price": 1930.3999999999999,
+      "unrealized_pnl": 0.3275,
       "stop_loss": null,
       "take_profit": null,
-      "position_value": 50.9066
+      "position_value": 50.57648
     }
   },
   "alerts_sent": [
-    "open_SOL_18:37",
-    "open_BTC_18:44",
     "open_ETH_18:54",
     "sl_hit_SOL_19:04",
     "sl_hit_BTC_19:04",
@@ -105,6 +103,15 @@
     "sl_hit_SOL_17:51",
     "close_BTC_13:10",
     "close_SOL_13:10",
-    "open_ETH_13:45"
+    "open_ETH_13:45",
+    "sl_hit_ETH_15:35",
+    "sl_hit_ETH_15:40",
+    "sl_hit_ETH_17:09",
+    "sl_hit_ETH_18:19",
+    "sl_hit_ETH_18:24",
+    "sl_hit_ETH_19:09",
+    "sl_hit_ETH_19:34",
+    "sl_hit_ETH_19:39",
+    "sl_hit_ETH_03:31"
   ]
 }

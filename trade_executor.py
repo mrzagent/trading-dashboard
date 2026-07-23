@@ -631,6 +631,10 @@ class TradeExecutor:
                         self.open_trades[symbol] = Trade(**trade_dict)
                     self.trade_history = state.get('trade_history', [])
                 logger.info(f"Loaded {len(self.open_trades)} open trades from state")
+                
+                # Sync with HyperLiquid to remove stale positions
+                # This handles cases where positions were closed on HL but local state wasn't updated
+                self._sync_with_hyperliquid()
         except Exception as e:
             logger.error(f"Failed to load state: {e}")
     
@@ -646,6 +650,43 @@ class TradeExecutor:
                 json.dump(state, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
+    
+    def _sync_with_hyperliquid(self):
+        """
+        Sync local state with actual HyperLiquid positions.
+        Removes positions from local state that are no longer open on HyperLiquid.
+        This prevents stale positions from blocking new trades.
+        """
+        try:
+            hl_positions = self.client.get_positions()
+            # Use a small threshold to filter out dust positions
+            hl_position_symbols = {p['coin'] for p in hl_positions if abs(p.get('size', 0)) > 0.0001}
+            
+            local_symbols = list(self.open_trades.keys())
+            stale_symbols = []
+            
+            for symbol in local_symbols:
+                if symbol not in hl_position_symbols:
+                    stale_symbols.append(symbol)
+            
+            if stale_symbols:
+                logger.warning(f"Found {len(stale_symbols)} stale position(s) not on HyperLiquid: {stale_symbols}")
+                for symbol in stale_symbols:
+                    trade = self.open_trades[symbol]
+                    # Mark as closed and move to history
+                    trade.status = 'closed'
+                    trade.exit_time = datetime.now().isoformat()
+                    trade.exit_reason = 'hyperliquid_sync'
+                    trade.exit_price = self.client.get_mid_price(symbol)
+                    self.trade_history.append(trade.to_dict())
+                    del self.open_trades[symbol]
+                    logger.info(f"Removed stale position: {symbol} (was {trade.side} {trade.position_size})")
+                
+                # Save the updated state
+                self._save_state()
+                logger.info(f"State synced with HyperLiquid. Now tracking {len(self.open_trades)} open position(s)")
+        except Exception as e:
+            logger.warning(f"Failed to sync with HyperLiquid (will use loaded state): {e}")
     
     def calculate_position_size(self, entry_price: float, stop_loss: float,
                                 side: str, symbol: str = None,
