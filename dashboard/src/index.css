@@ -331,3 +331,11 @@ code {
   padding: 0px 20px;
   box-sizing: border-box;
 }
+
+.f-align-center {
+  align-items: center;
+}
+
+.f-justify-between {
+  justify-content: space-between;
+}

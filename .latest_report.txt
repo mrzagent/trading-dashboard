@@ -1,31 +1,33 @@
 TRADING REPORT
-Thursday, July 23 - 11:03 (Bucharest)
+Saturday, August 22 - 11:04 (Bucharest)
 
 PRICES
-  BTC $65,390
-  ETH $1,914
-  SOL $77.08
+  BTC $77,420
+  ETH $2,436
+  SOL $94.61
 
 LATEST SIGNALS (Last Hour)
-  BTC | BUY @ 100% | volume_spike
-  ETH | SELL @ 100% | volume_spike
-  SOL | BUY @ 100% | volume_spike
+  BTC | SELL @ 100% | rsi_mean_reversion
+  ETH | SELL @ 96% | rsi_mean_reversion
+  SOL | BUY @ 95% | fvg_proximity
 
-SWING WALLET (Balance: $17.76)
-Open Positions: 1
-  ETH | SHORT | 3x | Entry $1,943 | PnL +$0.63
-
-SCALP WALLET (Balance: $39.76)
+SWING WALLET (Balance: $45.70)
 Open Positions: 3
-  SOL | LONG | 3x | Entry $77.68 | PnL -$0.46
-  BTC | SHORT | 3x | Entry $66,133 | PnL +$0.66
-  ETH | LONG | 3x | Entry $1,922 | PnL -$0.00
+  SOL | SHORT | 3x | Entry $93.88 | PnL -$0.32
+  BTC | SHORT | 3x | Entry $80,254 | PnL +$1.44
+  ETH | SHORT | 3x | Entry $2,366 | PnL -$2.66
 
-TOTAL: 4 positions | $57.52 balance | PnL +$0.82
+SCALP WALLET (Balance: $41.87)
+Open Positions: 3
+  SOL | LONG | 3x | Entry $95.28 | PnL -$0.51
+  BTC | SHORT | 3x | Entry $79,893 | PnL +$1.02
+  ETH | SHORT | 3x | Entry $2,364 | PnL -$1.89
+
+TOTAL: 6 positions | $87.56 balance | PnL -$2.92
 
 RECENT TRADES
-  [SKIPPED] SOL SELL (volume_spike) [SCALP]
-  [SKIPPED] SOL BUY (fvg_proximity) [SCALP]
-  [SKIPPED] SOL BUY (volume_spike) [SCALP]
-  [SKIPPED] BTC SELL (volume_spike) [SCALP]
-  [SKIPPED] SOL SELL (volume_spike) [SCALP]
+  [SKIPPED] SOL SELL (rsi_mean_reversion) [SWING]
+  [SKIPPED] ETH SELL (rsi_mean_reversion) [SWING]
+  [SKIPPED] BTC SELL (rsi_mean_reversion) [SWING]
+  [SKIPPED] SOL SELL (fvg_proximity) [SCALP]
+  [SKIPPED] SOL SELL (rsi_mean_reversion) [SWING]

@@ -1,13 +1,12 @@
 .health-monitor {
   background: var(--bg-secondary, #1a1a2e);
   padding: 16px 20px;
-  margin-bottom: 20px;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
 }
 
 .health-monitor.status-healthy {
-  border-color: var(--color-accent);
-  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .health-monitor.status-warning {
@@ -35,14 +34,14 @@
 
 .health-status {
   font-size: 12px;
-  font-weight: 700;
-  padding: 4px 12px;
+  padding: 10px 12px;
   border-radius: 20px;
   text-transform: uppercase;
+  line-height: 100%;
 }
 
 .health-status.status-healthy {
-  background: #10b981;
+  background: var(--color-accent);
   color: white;
 }
 
@@ -89,8 +88,11 @@
 
 .health-value {
   font-size: 13px;
-  font-weight: 500;
-  color: #e5e7eb;
+  color: #ffffff;
+}
+
+.health-icon {
+  margin-left: 10px;
 }
 
 .health-footer {
@@ -102,18 +104,19 @@
 }
 
 .health-refresh {
-  background: #3b82f6;
+  background: transparent;
   color: white;
   border: none;
-  padding: 6px 16px;
-  border-radius: 6px;
+  padding: 10px 16px;
+  border-radius: 0px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
+  border: 1px solid var(--color-accent);
 }
 
 .health-refresh:hover {
-  background: #2563eb;
+  background: var(--color-accent);
 }
 
 .health-timestamp {

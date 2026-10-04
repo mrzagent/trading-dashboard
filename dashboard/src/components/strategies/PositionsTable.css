@@ -176,3 +176,11 @@
   border-left: 1px solid var(--color-accent);
   padding-left: 10px;
 }
+
+.pos-size,
+.pos-leverage,
+.pos-time,
+.pos-entry,
+.pos-mark {
+  color: var(--color-text-primary);
+}

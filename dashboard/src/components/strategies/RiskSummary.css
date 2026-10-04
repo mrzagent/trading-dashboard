@@ -112,6 +112,7 @@
   justify-content: center;
   flex-direction: column;
   gap: var(--spacing-xs);
+  color: var(--color-text-primary);
 }
 
 .metric.large {
@@ -149,13 +150,6 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-@media (max-width: 1200px) {
-  .metric-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--spacing-lg);
-  }
-}
-
 .pnl-row {
   display: flex;
   justify-content: center;
@@ -184,7 +178,6 @@
 
 .wallet-section {
   display: flex;
-  flex-direction: column;
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
   background: var(--color-bg-elevated);
@@ -196,8 +189,20 @@
   font-size: 0.75rem;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  margin: 0 0 var(--spacing-xs) 0;
   letter-spacing: 0.5px;
+  margin: 0px;
+  display: flex;
+  align-items: center;
+}
+
+.wallet-section-title::after {
+  content: "";
+  width: 1px;
+  height: 100%;
+  display: flex;
+  position: relative;
+  background: var(--color-border-card);
+  margin-left: 20px;
 }
 
 .wallet-row {
@@ -262,7 +267,6 @@
 .wallet-label {
   font-size: 0.85rem;
   color: var(--color-text-muted);
-  margin-right: 10px;
   min-width: 50px;
 }
 
@@ -278,7 +282,6 @@
   color: var(--color-accent);
   font-weight: 500;
   font-family: var(--font-mono);
-  margin-left: var(--spacing-md);
 }
 
 /* Settings */
@@ -338,7 +341,6 @@
 .checkbox-row {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
 }
 
 .checkbox-row input[type="checkbox"] {
@@ -346,14 +348,13 @@
   height: 20px;
   accent-color: var(--color-accent);
   cursor: pointer;
-  background: var(--color-negative-bg);
+  background: transparent;
 }
 
 .environment-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-md) 0;
+  padding: 0;
 }
 
 .environment-toggle {
@@ -368,7 +369,7 @@
   padding: 8px 16px;
   border: none;
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font-size: 0.6rem;
   text-transform: uppercase;
   cursor: pointer;
@@ -377,11 +378,11 @@
 
 .env-btn:hover {
   color: var(--color-text-primary);
-  background: var(--color-border-dim);
+  background: var(--color-accent);
 }
 
 .env-btn.active {
-  color: var(--color-bg);
+  color: var(--color-text-primary);
   border: 1px solid var(--color-accent);
 }
 
@@ -479,4 +480,11 @@
 
 .toggle-status.disabled {
   color: var(--color-negative);
+}
+
+@media (max-width: 1800px) {
+  .metric-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--spacing-lg);
+  }
 }

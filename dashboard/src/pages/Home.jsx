@@ -5,6 +5,8 @@ import { HealthMonitor } from "../components/strategies";
 import PositionsTable from "../components/strategies/PositionsTable";
 import CoinCard from "../components/strategies/CoinCard";
 
+import hyperliquid from "../assets/hyperliquid-dark.png";
+
 export default function Home() {
   const [account, setAccount] = useState(null);
   const [positions, setPositions] = useState([]);
@@ -26,7 +28,9 @@ export default function Home() {
   // Fetch positions
   const fetchPositions = async () => {
     try {
-      const response = await fetch("http://localhost:3001/api/trading/positions");
+      const response = await fetch(
+        "http://localhost:3001/api/trading/positions",
+      );
       if (!response.ok) throw new Error("Failed to fetch positions");
       const data = await response.json();
       setPositions(data.positions || []);
@@ -52,11 +56,14 @@ export default function Home() {
   // Update settings
   const handleUpdateSettings = async (settings) => {
     try {
-      const response = await fetch("http://localhost:3001/api/trading/account", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      });
+      const response = await fetch(
+        "http://localhost:3001/api/trading/account",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(settings),
+        },
+      );
       if (!response.ok) throw new Error("Failed to update settings");
       await fetchAccount();
     } catch (err) {
@@ -76,7 +83,20 @@ export default function Home() {
       fetchPrices();
     }, 30000);
 
-    return () => clearInterval(interval);
+    // Also refresh when tab becomes visible (handles browser throttling)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchAccount();
+        fetchPositions();
+        fetchPrices();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   if (loading) {
@@ -85,26 +105,32 @@ export default function Home() {
 
   return (
     <div className="home-wrapper">
-      <h1 className="page-title">Trading Dashboard</h1>
+      <div className="d-flex f-align-center f-justify-between">
+        <h1 className="page-title">Trading Dashboard</h1>
+        <div className="exchange-info">
+          <img src={hyperliquid} alt="Hyperliquid" />
+        </div>
+      </div>
 
       {/* Risk Summary / Trading Status */}
       <section className="home-section">
-        <RiskSummary account={account} onUpdateSettings={handleUpdateSettings} />
+        <RiskSummary
+          account={account}
+          onUpdateSettings={handleUpdateSettings}
+        />
       </section>
 
       {/* Market Overview */}
       <section className="home-section">
         <h2 className="section-title">Market Overview</h2>
-        <div className="market-grid">
-          {prices.map((coin) => (
-            <CoinCard key={coin.coin} row={coin} />
-          ))}
+        <div className="market-overview">
+          <HealthMonitor />
+          <div className="market-grid">
+            {prices.map((coin) => (
+              <CoinCard key={coin.coin} row={coin} />
+            ))}
+          </div>
         </div>
-      </section>
-
-      {/* Trading System Health */}
-      <section className="home-section">
-        <HealthMonitor />
       </section>
 
       {/* Open Positions */}

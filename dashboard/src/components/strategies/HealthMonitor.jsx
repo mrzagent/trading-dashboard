@@ -78,12 +78,11 @@ export function HealthMonitor() {
 
   return (
     <div>
-      <h2 className="section-title">Trading System Health</h2>
       <div className={`health-monitor ${getStatusClass()}`}>
         <div className="health-header">
-          <span className="health-icon">{getStatusIcon()}</span>
           <span className={`health-status ${getStatusClass()}`}>
             {(health.status || "unknown").toUpperCase()}
+            <span className="health-icon">{getStatusIcon()}</span>
           </span>
         </div>
 

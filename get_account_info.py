@@ -14,6 +14,7 @@ import urllib.error
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config_loader import get_swing_credentials, get_scalp_credentials
+from portfolio_tracker import get_portfolio_stats_since_july_10, update_today_snapshot
 
 
 def load_risk_config_defaults():
@@ -83,10 +84,12 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
         # Total account value = perp + spot
         account_value = perp_account_value + spot_usdc
         
-        # Get portfolio data for PnL (24h, 7d, 30d)
+        # Get portfolio data for PnL (24h, 7d, 30d, and since July 10)
         pnl_24h = 0.0
         pnl_7d = 0.0
         pnl_30d = 0.0
+        pnl_since_july_10 = 0.0
+        starting_value_july_10 = 0.0
         try:
             portfolio = hl_api_post(api_url, {"type": "portfolio", "user": main_wallet})
             # portfolio is a list of [period, data] pairs
@@ -100,6 +103,29 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
                         pnl_7d = pnl_value
                     elif period_name == "month":
                         pnl_30d = pnl_value
+                    elif period_name == "allTime":
+                        # Calculate PnL since July 10, 2026
+                        # July 10, 2026 00:00:00 UTC = 1783641600000 ms
+                        july_10_timestamp = 1783641600000
+                        # Find the entry closest to July 10 (on or after)
+                        july_10_entry = None
+                        current_entry = None
+                        for entry in pnl_hist:
+                            ts = entry[0]
+                            # Find first entry on or after July 10
+                            if ts >= july_10_timestamp:
+                                if july_10_entry is None or ts < july_10_entry[0]:
+                                    july_10_entry = entry
+                            # Find the latest entry
+                            if current_entry is None or ts > current_entry[0]:
+                                current_entry = entry
+                        
+                        if july_10_entry and current_entry:
+                            pnl_at_july_10 = float(july_10_entry[1])
+                            current_pnl = float(current_entry[1])
+                            pnl_since_july_10 = current_pnl - pnl_at_july_10
+                            # Store PnL at July 10 (not account value)
+                            starting_value_july_10 = pnl_at_july_10
         except Exception:
             pass
         
@@ -139,6 +165,8 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
             'pnl24h': pnl_24h,
             'pnl7d': pnl_7d,
             'pnl30d': pnl_30d,
+            'pnlSinceJuly10': pnl_since_july_10,
+            'startingValueJuly10': starting_value_july_10,
         }
         
     except Exception as e:
@@ -158,6 +186,8 @@ def fetch_wallet_info(creds: dict, wallet_type: str) -> dict:
             'pnl24h': 0,
             'pnl7d': 0,
             'pnl30d': 0,
+            'pnlSinceJuly10': 0,
+            'startingValueJuly10': 0,
             'error': str(e)
         }
 
@@ -183,6 +213,8 @@ def fetch_all_account_info():
         total_pnl_24h = (swing_info.get('pnl24h', 0) or 0) + (scalp_info.get('pnl24h', 0) or 0)
         total_pnl_7d = (swing_info.get('pnl7d', 0) or 0) + (scalp_info.get('pnl7d', 0) or 0)
         total_pnl_30d = (swing_info.get('pnl30d', 0) or 0) + (scalp_info.get('pnl30d', 0) or 0)
+        total_pnl_since_july_10 = (swing_info.get('pnlSinceJuly10', 0) or 0) + (scalp_info.get('pnlSinceJuly10', 0) or 0)
+        total_starting_value_july_10 = (swing_info.get('startingValueJuly10', 0) or 0) + (scalp_info.get('startingValueJuly10', 0) or 0)
         
         # Load risk config defaults
         defaults = load_risk_config_defaults()
@@ -203,6 +235,10 @@ def fetch_all_account_info():
             'pnl24h': total_pnl_24h if total_pnl_24h != 0 else None,
             'pnl7d': total_pnl_7d if total_pnl_7d != 0 else None,
             'pnl30d': total_pnl_30d if total_pnl_30d != 0 else None,
+            'pnlSinceJuly10': total_pnl_since_july_10 if total_pnl_since_july_10 != 0 else None,
+            'pnlAtJuly10': total_starting_value_july_10,
+            # Portfolio tracker stats (accurate since July 10)
+            'portfolioStats': get_portfolio_stats_since_july_10(),
             'leverage': defaults['leverage'],
             'stopLoss': defaults['stopLoss'],
             'takeProfit': defaults['takeProfit'],
@@ -234,6 +270,9 @@ def fetch_all_account_info():
             'pnl24h': None,
             'pnl7d': None,
             'pnl30d': None,
+            'pnlSinceJuly10': None,
+            'pnlAtJuly10': None,
+            'portfolioStats': None,
             'leverage': defaults['leverage'],
             'stopLoss': defaults['stopLoss'],
             'takeProfit': defaults['takeProfit'],
@@ -245,5 +284,16 @@ def fetch_all_account_info():
 # Main execution
 if __name__ == "__main__":
     result = fetch_all_account_info()
+    
+    # Update today's snapshot with current data
+    try:
+        if result.get('wallets'):
+            update_today_snapshot(
+                result['wallets'].get('swing', {}),
+                result['wallets'].get('scalp', {})
+            )
+    except Exception as e:
+        print(f"Warning: Failed to update portfolio snapshot: {e}", file=sys.stderr)
+    
     print(json.dumps(result))
     sys.stdout.flush()

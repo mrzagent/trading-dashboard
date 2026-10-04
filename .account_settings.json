@@ -1,5 +1,5 @@
 {
-  "tradingEnabled": true,
+  "tradingEnabled": false,
   "cooldownMinutes": 30,
   "allowMultiplePositions": false,
   "leverage": 3,
@@ -19,5 +19,5 @@
     "mainWalletAddress": "0x97c465489243175580fcDe624c2ef640c1897a00",
     "privateKeyEnv": "HYPERLIQUID_SWING_MAINNET_AGENT_PRIVATE_KEY"
   },
-  "updatedAt": "2026-07-21T10:44:55.235Z"
+  "updatedAt": "2026-10-04T07:40:49.222Z"
 }

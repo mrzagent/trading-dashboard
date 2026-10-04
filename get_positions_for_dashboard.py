@@ -20,13 +20,46 @@ import psycopg2.extras
 import json
 
 
-def load_trade_metadata_from_db(coin: str, wallet_type: str = 'swing'):
-    """Load trade metadata from database for a specific coin and wallet type."""
+def load_trade_metadata_from_db(coin: str, wallet_type: str = 'swing', entry_price: float = None):
+    """Load trade metadata from database for a specific coin and wallet type.
+    
+    Matches by entry price (from signal meta) to find the trade that opened the current position.
+    """
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Get the most recent successful trade for this coin
+        # First try to match by entry price from signal meta (most accurate)
+        if entry_price and entry_price > 0:
+            # Allow 0.5% price difference for matching
+            price_tolerance = entry_price * 0.005
+            cur.execute("""
+                SELECT te.*, ts.strategy, ts.created_at as signal_time,
+                       (ts.meta->>'price')::numeric as signal_price
+                FROM trade_executions te
+                LEFT JOIN trading_signals ts ON te.signal_id = ts.id
+                WHERE te.coin = %s AND te.status = 'success'
+                    AND ts.meta->>'price' IS NOT NULL
+                    AND ABS((ts.meta->>'price')::numeric - %s) < %s
+                ORDER BY te.created_at DESC
+                LIMIT 1
+            """, (coin, entry_price, price_tolerance))
+            
+            trade = cur.fetchone()
+            if trade:
+                cur.close()
+                conn.close()
+                return {
+                    'strategy': trade.get('strategy'),
+                    'signal_time': trade.get('signal_time').isoformat() if trade.get('signal_time') else None,
+                    'order_placed_time': trade.get('hyperliquid_sent_at').isoformat() if trade.get('hyperliquid_sent_at') else None,
+                    'entry_time': trade.get('created_at').isoformat() if trade.get('created_at') else None,
+                    'order_id': str(trade.get('hyperliquid_order_id')) if trade.get('hyperliquid_order_id') else None,
+                    'sl_order_id': None,
+                    'tp_order_ids': [],
+                }
+        
+        # Fallback: get the most recent successful trade for this coin
         cur.execute("""
             SELECT te.*, ts.strategy, ts.created_at as signal_time
             FROM trade_executions te
@@ -47,8 +80,8 @@ def load_trade_metadata_from_db(coin: str, wallet_type: str = 'swing'):
                 'order_placed_time': trade.get('hyperliquid_sent_at').isoformat() if trade.get('hyperliquid_sent_at') else None,
                 'entry_time': trade.get('created_at').isoformat() if trade.get('created_at') else None,
                 'order_id': str(trade.get('hyperliquid_order_id')) if trade.get('hyperliquid_order_id') else None,
-                'sl_order_id': None,  # Not stored in DB yet
-                'tp_order_ids': [],   # Not stored in DB yet
+                'sl_order_id': None,
+                'tp_order_ids': [],
             }
     except Exception as e:
         print(f"Warning: Could not load trade metadata from DB for {coin}: {e}", file=sys.stderr)
@@ -56,13 +89,13 @@ def load_trade_metadata_from_db(coin: str, wallet_type: str = 'swing'):
 
 
 def format_time(iso_time):
-    """Format ISO timestamp to HH:MM:SS"""
+    """Format ISO timestamp to DD MMM HH:MM:SS"""
     if not iso_time:
         return None
     try:
         # Handle both with and without timezone
         dt = datetime.fromisoformat(iso_time.replace('Z', '+00:00'))
-        return dt.strftime('%H:%M:%S')
+        return dt.strftime('%d %b %H:%M:%S')
     except:
         return iso_time[:8] if len(str(iso_time)) > 8 else iso_time
 
@@ -111,8 +144,8 @@ def fetch_positions_for_wallet(creds: dict, wallet_type: str) -> list:
                 if margin_used > 0 and position_value > 0:
                     leverage = position_value / margin_used
             
-            # Get trade metadata from database
-            trade_meta = load_trade_metadata_from_db(coin, wallet_type)
+            # Get trade metadata from database (match by entry price for accuracy)
+            trade_meta = load_trade_metadata_from_db(coin, wallet_type, entry)
             
             # Calculate SL/TP distances
             sl_distance = abs(entry - sl) / entry * 100 if entry > 0 and sl > 0 else 0

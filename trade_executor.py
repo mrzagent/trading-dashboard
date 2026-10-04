@@ -1490,6 +1490,10 @@ Reason: {reason}{partial_summary}
         With native SL/TP trigger orders, exits happen on HyperLiquid.
         This method syncs local state when positions are closed by trigger orders.
         """
+        # First, sync with HyperLiquid to remove any stale positions
+        # This handles cases where positions were closed outside the system
+        self._sync_with_hyperliquid()
+        
         # Get current positions from HyperLiquid
         try:
             hl_positions = self.client.get_positions()

@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import "./RiskSummary.css";
-import hyperliquid from "../../assets/hyperliquid-dark.png";
 
 export default function RiskSummary({ account, onUpdateSettings }) {
   // Defaults sourced from risk_config.json via API: leverage=3, stopLoss=5%, takeProfit=3%
@@ -49,12 +48,24 @@ export default function RiskSummary({ account, onUpdateSettings }) {
         positionSizePct: account.positionSizePct ?? DEFAULT_POSITION_SIZE_PCT,
         environment: account.environment ?? DEFAULT_ENVIRONMENT,
         // Wallet fields - only update if not currently editing
-        swingMainWallet: editingWallets ? prev.swingMainWallet : (account.swingMainWallet ?? ""),
-        swingAgentWallet: editingWallets ? prev.swingAgentWallet : (account.swingAgentWallet ?? ""),
-        swingAgentPrivateKey: editingWallets ? prev.swingAgentPrivateKey : (account.swingAgentPrivateKey ?? ""),
-        scalpMainWallet: editingWallets ? prev.scalpMainWallet : (account.scalpMainWallet ?? ""),
-        scalpAgentWallet: editingWallets ? prev.scalpAgentWallet : (account.scalpAgentWallet ?? ""),
-        scalpAgentPrivateKey: editingWallets ? prev.scalpAgentPrivateKey : (account.scalpAgentPrivateKey ?? ""),
+        swingMainWallet: editingWallets
+          ? prev.swingMainWallet
+          : (account.swingMainWallet ?? ""),
+        swingAgentWallet: editingWallets
+          ? prev.swingAgentWallet
+          : (account.swingAgentWallet ?? ""),
+        swingAgentPrivateKey: editingWallets
+          ? prev.swingAgentPrivateKey
+          : (account.swingAgentPrivateKey ?? ""),
+        scalpMainWallet: editingWallets
+          ? prev.scalpMainWallet
+          : (account.scalpMainWallet ?? ""),
+        scalpAgentWallet: editingWallets
+          ? prev.scalpAgentWallet
+          : (account.scalpAgentWallet ?? ""),
+        scalpAgentPrivateKey: editingWallets
+          ? prev.scalpAgentPrivateKey
+          : (account.scalpAgentPrivateKey ?? ""),
       }));
     }
   }, [account, editingWallets]);
@@ -98,16 +109,19 @@ export default function RiskSummary({ account, onUpdateSettings }) {
   const pnl24h = account?.pnl24h ?? null;
   const pnl7d = account?.pnl7d ?? null;
   const pnl30d = account?.pnl30d ?? null;
+  const pnlSinceJuly10 = account?.pnlSinceJuly10 ?? null;
+  const portfolioStats = account?.portfolioStats ?? null;
   // Wallet separation - per-wallet balances
   const wallets = account?.wallets || {};
   const swingWallet = wallets?.swing || {};
   const scalpWallet = wallets?.scalp || {};
-  
+
   // Legacy aliases for backward compatibility
   const mainWallet = swingWallet?.mainWallet || "";
   const agentWallet = swingWallet?.agentWallet || "";
 
-  const accountTradingEnabled = account?.tradingEnabled ?? DEFAULT_TRADING_ENABLED;
+  const accountTradingEnabled =
+    account?.tradingEnabled ?? DEFAULT_TRADING_ENABLED;
   const accountLeverage = account?.leverage ?? DEFAULT_LEVERAGE;
   const accountStopLoss = account?.stopLoss ?? DEFAULT_STOP_LOSS;
   const accountTakeProfit = account?.takeProfit ?? DEFAULT_TAKE_PROFIT;
@@ -130,10 +144,12 @@ export default function RiskSummary({ account, onUpdateSettings }) {
     localSettings.environment !== accountEnvironment ||
     localSettings.swingMainWallet !== (swingWallet?.mainWallet || "") ||
     localSettings.swingAgentWallet !== (swingWallet?.agentWallet || "") ||
-    localSettings.swingAgentPrivateKey !== (account?.swingAgentPrivateKey || "") ||
+    localSettings.swingAgentPrivateKey !==
+      (account?.swingAgentPrivateKey || "") ||
     localSettings.scalpMainWallet !== (scalpWallet?.mainWallet || "") ||
     localSettings.scalpAgentWallet !== (scalpWallet?.agentWallet || "") ||
-    localSettings.scalpAgentPrivateKey !== (account?.scalpAgentPrivateKey || "");
+    localSettings.scalpAgentPrivateKey !==
+      (account?.scalpAgentPrivateKey || "");
 
   const formatPnl = (val) => {
     if (val === null || val === undefined) return "—";
@@ -150,22 +166,31 @@ export default function RiskSummary({ account, onUpdateSettings }) {
       <div className="summary-header">
         <div className="summary-title-section">
           <h2 className="summary-title">Trading Status</h2>
+
           <span
             className={`trading-status ${accountEnvironment === "mainnet" ? "live" : "test"}`}
           >
-            {accountEnvironment === "mainnet" ? "LIVE" : "TEST"}
+            {accountEnvironment === "mainnet" ? "LIVE" : "TESTNET"}
           </span>
           {/* Trading Master Toggle */}
           <div className="trading-master-toggle">
             <span className="toggle-label">Trading</span>
             <button
               className={`toggle-switch ${localSettings.tradingEnabled ? "on" : "off"}`}
-              onClick={() => handleChange("tradingEnabled", !localSettings.tradingEnabled)}
-              title={localSettings.tradingEnabled ? "Trading is ON - signals and trades active" : "Trading is OFF - price collection only"}
+              onClick={() =>
+                handleChange("tradingEnabled", !localSettings.tradingEnabled)
+              }
+              title={
+                localSettings.tradingEnabled
+                  ? "Trading is ON - signals and trades active"
+                  : "Trading is OFF - price collection only"
+              }
             >
               <span className="toggle-knob" />
             </button>
-            <span className={`toggle-status ${localSettings.tradingEnabled ? "enabled" : "disabled"}`}>
+            <span
+              className={`toggle-status ${localSettings.tradingEnabled ? "enabled" : "disabled"}`}
+            >
               {localSettings.tradingEnabled ? "ON" : "OFF"}
             </span>
           </div>
@@ -182,7 +207,9 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     type="text"
                     className="wallet-input"
                     value={localSettings.swingMainWallet}
-                    onChange={(e) => handleChange("swingMainWallet", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("swingMainWallet", e.target.value)
+                    }
                     placeholder="0x... (holds funds)"
                   />
                 </div>
@@ -192,7 +219,9 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     type="text"
                     className="wallet-input"
                     value={localSettings.swingAgentWallet}
-                    onChange={(e) => handleChange("swingAgentWallet", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("swingAgentWallet", e.target.value)
+                    }
                     placeholder="0x... (signs transactions)"
                   />
                 </div>
@@ -202,7 +231,9 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     type="text"
                     className="wallet-input"
                     value={localSettings.swingAgentPrivateKey}
-                    onChange={(e) => handleChange("swingAgentPrivateKey", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("swingAgentPrivateKey", e.target.value)
+                    }
                     placeholder="Private key for agent wallet"
                   />
                 </div>
@@ -215,7 +246,9 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     type="text"
                     className="wallet-input"
                     value={localSettings.scalpMainWallet}
-                    onChange={(e) => handleChange("scalpMainWallet", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("scalpMainWallet", e.target.value)
+                    }
                     placeholder="0x... (holds funds)"
                   />
                 </div>
@@ -225,7 +258,9 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     type="text"
                     className="wallet-input"
                     value={localSettings.scalpAgentWallet}
-                    onChange={(e) => handleChange("scalpAgentWallet", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("scalpAgentWallet", e.target.value)
+                    }
                     placeholder="0x... (signs transactions)"
                   />
                 </div>
@@ -235,7 +270,9 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                     type="text"
                     className="wallet-input"
                     value={localSettings.scalpAgentPrivateKey}
-                    onChange={(e) => handleChange("scalpAgentPrivateKey", e.target.value)}
+                    onChange={(e) =>
+                      handleChange("scalpAgentPrivateKey", e.target.value)
+                    }
                     placeholder="Private key for agent wallet"
                   />
                 </div>
@@ -254,11 +291,20 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                 <h4 className="wallet-section-title">SWING</h4>
                 <div className="wallet-row">
                   <span className="wallet-label">Main</span>
-                  <span className="wallet-addr" title={swingWallet.mainWallet || swingWallet.walletAddress}>
-                    {formatAddress(swingWallet.mainWallet || swingWallet.walletAddress)}
-                  </span>
                   <span className="wallet-balance">
-                    ${(swingWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    $
+                    {(swingWallet.balance || 0).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  <span
+                    className="wallet-addr"
+                    title={swingWallet.mainWallet || swingWallet.walletAddress}
+                  >
+                    {formatAddress(
+                      swingWallet.mainWallet || swingWallet.walletAddress,
+                    )}
                   </span>
                 </div>
                 <div className="wallet-row">
@@ -273,11 +319,20 @@ export default function RiskSummary({ account, onUpdateSettings }) {
                 <h4 className="wallet-section-title">SCALP</h4>
                 <div className="wallet-row">
                   <span className="wallet-label">Main</span>
-                  <span className="wallet-addr" title={scalpWallet.mainWallet || scalpWallet.walletAddress}>
-                    {formatAddress(scalpWallet.mainWallet || scalpWallet.walletAddress)}
-                  </span>
                   <span className="wallet-balance">
-                    ${(scalpWallet.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    $
+                    {(scalpWallet.balance || 0).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  <span
+                    className="wallet-addr"
+                    title={scalpWallet.mainWallet || scalpWallet.walletAddress}
+                  >
+                    {formatAddress(
+                      scalpWallet.mainWallet || scalpWallet.walletAddress,
+                    )}
                   </span>
                 </div>
                 <div className="wallet-row">
@@ -295,9 +350,6 @@ export default function RiskSummary({ account, onUpdateSettings }) {
               </button>
             </>
           )}
-        </div>
-        <div className="exchange-info">
-          <img src={hyperliquid} alt="Hyperliquid" />
         </div>
       </div>
 
@@ -344,6 +396,35 @@ export default function RiskSummary({ account, onUpdateSettings }) {
               <span style={pnlStyle(pnl30d)}>{formatPnl(pnl30d ?? 0)}</span>
             </div>
           </div>
+          {/* Portfolio Tracker Stats - Accurate since July 10 */}
+          {portfolioStats && (
+            <div
+              className="pnl-row"
+              style={{
+                display: "flex",
+                gap: "16px",
+                marginTop: "8px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div className="metric small">
+                <span className="metric-label">Since July 10: </span>
+                <span style={pnlStyle(portfolioStats.total_pnl)}>
+                  {formatPnl(portfolioStats.total_pnl)} (
+                  {portfolioStats.return_pct >= 0 ? "+" : ""}
+                  {portfolioStats.return_pct}%)
+                </span>
+              </div>
+              <div className="metric small">
+                <span className="metric-label">Avg Margin: </span>
+                <span>${portfolioStats.avg_total_margin.toLocaleString()}</span>
+              </div>
+              <div className="metric small">
+                <span className="metric-label">Days: </span>
+                <span>{portfolioStats.days_tracked}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Position Value */}

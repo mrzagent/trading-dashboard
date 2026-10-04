@@ -29,6 +29,21 @@
   color: #fff;
 }
 
+.market-overview {
+  display: flex;
+  width: 100%;
+}
+
+.market-overview > div:first-child {
+  width: 30%;
+  margin-right: 20px;
+  box-sizing: border-box;
+}
+
+.market-overview > div:last-child {
+  width: 70%;
+}
+
 .market-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
